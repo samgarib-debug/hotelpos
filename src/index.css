@@ -1,0 +1,113 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   Design tokens — SambaPOS-style dark theme.
+   These are placeholders tuned to match the DigitotPOS/SambaPOS look;
+   once the client screenshots land, only these values change.
+------------------------------------------------------------------- */
+@theme {
+  --color-bg: #0f1216;
+  --color-surface: #171b21;
+  --color-panel: #1e232b;
+  --color-panel-2: #262c36;
+  --color-panel-3: #313a46;
+  --color-line: #363f4c;
+  --color-fg: #e9edf2;
+  --color-muted: #97a2b0;
+  --color-primary: #2f6fed;
+  --color-primary-2: #4a86f7;
+  --color-accent: #12b5a5;
+  --color-danger: #e5484d;
+  --color-warn: #f5a524;
+  --color-success: #30a46c;
+
+  /* room front-office / housekeeping state colors */
+  --color-room-vacant: #2f8f4e;
+  --color-room-occupied: #c9781a;
+  --color-room-checkout: #d23b3b;
+  --color-room-dirty: #566072;
+  --color-room-ooo: #7c5cff;
+
+  --radius-btn: 0.55rem;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* kiosk: never scroll the page itself; panels scroll internally */
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* touch ergonomics: no tap delay, no highlight, no accidental selection */
+  button,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    cursor: pointer;
+  }
+
+  #root {
+    user-select: none;
+  }
+
+  /* thin dark scrollbars for the touch panels */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-panel-3) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-panel-3);
+    border-radius: 6px;
+  }
+}
+
+/* Fast visual feedback on press for any .tap element */
+@layer utilities {
+  .tap {
+    transition:
+      transform 0.04s ease,
+      filter 0.08s ease;
+  }
+  .tap:active {
+    transform: translateY(1px) scale(0.985);
+    filter: brightness(1.12);
+  }
+}
+
+/* ------------------------------------------------------------------
+   Print — isolate a receipt element for window.print()
+------------------------------------------------------------------- */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #print-area,
+  #print-area * {
+    visibility: visible !important;
+  }
+  #print-area {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: #000;
+  }
+}
