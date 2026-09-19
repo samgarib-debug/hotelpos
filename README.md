@@ -79,6 +79,32 @@ npm run dev      # http://localhost:5173
 npm run build    # type-check + production build
 ```
 
+## Builds (offline bundle & desktop installer)
+
+App icon (regenerates `build/icon.ico` from `build/icon.svg`):
+
+```bash
+node build/make-icon.mjs
+```
+
+Self-contained offline bundle (single inlined `index.html`, hash routing) into `dist-offline/`:
+
+```bash
+VITE_HASH=1 VITE_SINGLEFILE=1 npx vite build --base=./ --outDir dist-offline
+```
+
+Windows desktop installer (Electron) — bundles the offline UI:
+
+```bash
+# from repo root: stage the UI + icon into desktop/
+cp -r dist-offline/* desktop/ui/ && cp build/icon.ico desktop/build/
+cd desktop && npm install && npm run dist   # -> desktop/release/HotelPOS Setup <v>.exe
+```
+
+> On a virtualized filesystem (e.g. VirtioFS) electron-builder's extract step can throw
+> `EPERM` on a directory rename — point `build.directories.output` (in `desktop/package.json`)
+> at a path on a local NTFS disk.
+
 ## Project layout
 
 ```
