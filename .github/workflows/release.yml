@@ -42,6 +42,8 @@ jobs:
         env:
           VITE_HASH: '1'
           VITE_SINGLEFILE: '1'
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npx vite build --base=./ --outDir dist-offline
 
       - name: Stage desktop UI

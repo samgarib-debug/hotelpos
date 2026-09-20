@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { CalendarScreen } from './screens/CalendarScreen'
@@ -6,12 +7,17 @@ import { ReservationsScreen } from './screens/ReservationsScreen'
 import { ReportsScreen } from './screens/ReportsScreen'
 import { OrderScreen } from './screens/OrderScreen'
 import { SettleScreen } from './screens/SettleScreen'
+import { initSync } from './lib/sync'
 
 // Hash routing for packaged/offline builds (works from file:// or any subpath);
 // clean path routing for the hosted web deploy.
 const Router = import.meta.env.VITE_HASH === '1' ? HashRouter : BrowserRouter
 
 export default function App() {
+  useEffect(() => {
+    void initSync()
+  }, [])
+
   return (
     <Router>
       <div className="h-full w-full">
