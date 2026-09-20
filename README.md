@@ -56,9 +56,10 @@ data layer for Supabase when the backend is provisioned (design doc §2, §3.10)
   summary tiles for arrivals today, in-house, and revenue collected.
 
 - **Reports** (`/reports`) — a full reporting section: Overview (occupancy, ADR, RevPAR,
-  revenue), Revenue, Occupancy, POS Sales, Bookings, Payments and Folios, each with
-  KPI tiles, bar charts and tables, filterable by date range (today / 7d / 30d / month /
-  custom).
+  revenue), Revenue, Occupancy, POS Sales, Bookings, Payments, Folios and **Approvals**
+  (the manager-PIN audit trail: attempts, failures, who requested and who approved,
+  straight from the backend), each with KPI tiles, bar charts and tables, filterable
+  by date range (today / 7d / 30d / month / custom).
 - **Currency: South African Rand (ZAR / R), 15% VAT-inclusive.**
 
 Navigation: left sidebar → **Calendar** · **Floor** (POS room board) · **Bookings** · **Reports** · **Staff**.

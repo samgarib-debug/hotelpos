@@ -1,11 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePos } from '../store/pos'
 import { buildReport, type DateRange } from '../lib/reports'
 import { formatMoney } from '../lib/money'
-import { fmtDate, ymd } from '../lib/date'
+import { addDays, fmtDate, fmtDateTime, parseYMD, ymd } from '../lib/date'
+import { supabase, supabaseEnabled } from '../lib/supabase'
 
 type Preset = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
-type Tab = 'overview' | 'revenue' | 'occupancy' | 'pos' | 'bookings' | 'payments' | 'folios'
+type Tab =
+  | 'overview'
+  | 'revenue'
+  | 'occupancy'
+  | 'pos'
+  | 'bookings'
+  | 'payments'
+  | 'folios'
+  | 'approvals'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -15,6 +24,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'bookings', label: 'Bookings' },
   { id: 'payments', label: 'Payments' },
   { id: 'folios', label: 'Folios' },
+  { id: 'approvals', label: 'Approvals' },
 ]
 
 function rangeFor(preset: Preset, from: string, to: string): DateRange {
@@ -276,7 +286,139 @@ export function ReportsScreen() {
             </Card>
           </div>
         )}
+
+        {tab === 'approvals' && <ApprovalsReport range={range} />}
       </div>
+    </div>
+  )
+}
+
+/* ---- Approvals audit log (live from the backend; manager/admin readable) ---- */
+
+interface ApprovalRow {
+  id: string
+  requested_by: string
+  approved_by: string | null
+  action: string
+  success: boolean
+  created_at: string
+}
+
+const APPROVALS_LIMIT = 200
+
+function ApprovalsReport({ range }: { range: DateRange }) {
+  const [rows, setRows] = useState<ApprovalRow[]>([])
+  const [people, setPeople] = useState<Map<string, string>>(new Map())
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!supabase) return
+    let active = true
+    setLoading(true)
+    setError(null)
+    // created_at is a timestamp; use an exclusive upper bound of range.to + 1 day
+    const upper = ymd(addDays(parseYMD(range.to), 1))
+    Promise.all([
+      supabase
+        .from('manager_approvals')
+        .select('*')
+        .gte('created_at', range.from)
+        .lt('created_at', upper)
+        .order('created_at', { ascending: false })
+        .limit(APPROVALS_LIMIT),
+      supabase.from('profiles').select('id, full_name, email'),
+    ]).then(([a, p]) => {
+      if (!active) return
+      if (a.error) setError(a.error.message)
+      else setRows((a.data ?? []) as ApprovalRow[])
+      setPeople(
+        new Map(
+          ((p.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map(
+            (x) => [x.id, x.full_name || x.email || 'Unknown'],
+          ),
+        ),
+      )
+      setLoading(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [range.from, range.to])
+
+  if (!supabaseEnabled) {
+    return (
+      <div className="py-10 text-center text-muted">
+        The approvals audit log lives on the online backend — this build is running in
+        local/offline mode.
+      </div>
+    )
+  }
+  if (loading) return <div className="py-10 text-center text-muted">Loading approvals…</div>
+
+  const approved = rows.filter((r) => r.success)
+  const failed = rows.filter((r) => !r.success)
+  const staffInvolved = new Set(rows.map((r) => r.requested_by)).size
+  const byAction = Array.from(
+    rows.reduce((m, r) => m.set(r.action, (m.get(r.action) ?? 0) + 1), new Map<string, number>()),
+  )
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+  const name = (id: string | null) => (id ? people.get(id) ?? 'Unknown' : '—')
+
+  return (
+    <div className="flex flex-col gap-5">
+      <KpiGrid>
+        <Kpi label="PIN attempts" value={String(rows.length)} />
+        <Kpi label="Approved" value={String(approved.length)} />
+        <Kpi label="Failed" value={String(failed.length)} accent={failed.length > 0} />
+        <Kpi label="Staff involved" value={String(staffInvolved)} />
+      </KpiGrid>
+
+      {error && (
+        <div className="rounded-btn bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>
+      )}
+
+      <Card title="Attempts by action">
+        <Bars items={byAction} empty="No PIN approvals in this range yet." />
+      </Card>
+
+      <Card title={`Audit trail${rows.length === APPROVALS_LIMIT ? ` (latest ${APPROVALS_LIMIT})` : ''}`}>
+        {rows.length === 0 ? (
+          <div className="py-4 text-center text-muted">No PIN approvals in this range yet.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-left text-muted">
+              <tr>
+                <th className="py-1 pr-3 font-semibold">When</th>
+                <th className="py-1 pr-3 font-semibold">Action</th>
+                <th className="py-1 pr-3 font-semibold">Requested by</th>
+                <th className="py-1 pr-3 font-semibold">Approved by</th>
+                <th className="py-1 font-semibold">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t border-line/60">
+                  <td className="py-2 pr-3 whitespace-nowrap text-muted">{fmtDateTime(r.created_at)}</td>
+                  <td className="py-2 pr-3 font-medium">{r.action}</td>
+                  <td className="py-2 pr-3">{name(r.requested_by)}</td>
+                  <td className="py-2 pr-3">{name(r.approved_by)}</td>
+                  <td className="py-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                        r.success ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'
+                      }`}
+                    >
+                      {r.success ? 'Approved' : 'Failed'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
     </div>
   )
 }
