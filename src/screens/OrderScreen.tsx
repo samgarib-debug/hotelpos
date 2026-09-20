@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePos, folioBalance } from '../store/pos'
 import { computeTotals, formatMoney } from '../lib/money'
-import { useAuth } from '../lib/authContext'
-import { can } from '../lib/permissions'
 import { TopBar } from '../components/TopBar'
 import { Modal } from '../components/Modal'
 import { FolioDialog } from '../components/FolioDialog'
+import { useManagerApproval } from '../components/useManagerApproval'
 
 export function OrderScreen() {
   const navigate = useNavigate()
@@ -26,7 +25,7 @@ export function OrderScreen() {
   const setDiscount = usePos((s) => s.setDiscount)
   const submitTicket = usePos((s) => s.submitTicket)
 
-  const { role } = useAuth()
+  const approval = useManagerApproval()
   const [showDiscount, setShowDiscount] = useState(false)
   const [showFolio, setShowFolio] = useState(false)
 
@@ -147,16 +146,21 @@ export function OrderScreen() {
                       @ {formatMoney(l.unitPrice, config)}
                     </span>
                     <button
-                      disabled={l.state === 'SUBMITTED' && !can(role, 'void_submitted')}
                       title={
-                        l.state === 'SUBMITTED' && !can(role, 'void_submitted')
-                          ? 'Voiding a sent item needs a manager'
+                        l.state === 'SUBMITTED' && approval.locked('void_submitted')
+                          ? 'Manager PIN required'
                           : undefined
                       }
-                      className="tap ml-auto h-8 rounded bg-panel-2 px-2 text-sm text-danger hover:bg-panel-3 disabled:opacity-40"
-                      onClick={() => voidLine(l.id)}
+                      className="tap ml-auto h-8 rounded bg-panel-2 px-2 text-sm text-danger hover:bg-panel-3"
+                      onClick={() =>
+                        l.state === 'SUBMITTED'
+                          ? approval.request('void_submitted', `Void ${l.name}`, () => voidLine(l.id))
+                          : voidLine(l.id)
+                      }
                     >
-                      {l.state === 'NEW' ? 'Remove' : 'Void'}
+                      {l.state === 'NEW'
+                        ? 'Remove'
+                        : `Void${approval.locked('void_submitted') ? ' 🔒' : ''}`}
                     </button>
                   </div>
                 )}
@@ -227,11 +231,10 @@ export function OrderScreen() {
       <footer className="flex shrink-0 gap-2 border-t border-line bg-surface p-2">
         <FuncBtn onClick={submitTicket}>Submit / KOT</FuncBtn>
         <FuncBtn
-          onClick={() => setShowDiscount(true)}
-          disabled={!can(role, 'discount')}
-          title={!can(role, 'discount') ? 'Discounts need a manager' : undefined}
+          onClick={() => approval.request('discount', 'Apply discount', () => setShowDiscount(true))}
+          title={approval.locked('discount') ? 'Manager PIN required' : undefined}
         >
-          Discount
+          Discount{approval.locked('discount') ? ' 🔒' : ''}
         </FuncBtn>
         {room?.folioId && <FuncBtn onClick={() => setShowFolio(true)}>Folio</FuncBtn>}
         <button
@@ -270,6 +273,8 @@ export function OrderScreen() {
           navigate('/floor')
         }}
       />
+
+      {approval.dialog}
     </div>
   )
 }

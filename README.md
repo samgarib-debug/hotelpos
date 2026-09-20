@@ -85,6 +85,16 @@ UI gating lives in `src/lib/permissions.ts` (`can(role, permission)`); the role 
 served through `AuthGate` → `useAuth()`. Note: action-level rules are enforced in the
 UI — hard server-side enforcement per action (e.g. via RPCs) is future hardening.
 
+**Manager PIN override at the till:** staff tapping a locked action (discount, comp,
+void-after-KOT, cancel booking) get a PIN pad; a manager's PIN approves that single
+action without switching accounts, with an "Approved by …" toast. Managers set their
+own 4-6 digit PIN via Floor → ⚙ → *Set my manager PIN*. PINs are bcrypt-hashed
+server-side (`verify_manager_pin` / `set_manager_pin` SECURITY DEFINER RPCs); the
+hash is never readable by clients (column-level grant), 5 failed attempts per user
+per 5 minutes are locked out, and every attempt is logged in `manager_approvals`
+(readable by managers/admins). Local test tip: `VITE_DEFAULT_ROLE=staff` builds the
+backend-free bundle as the staff experience.
+
 ## Tech stack
 
 React + TypeScript + Vite · Tailwind CSS v4 · Zustand (persisted) · React Router.

@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { PaymentKind } from '../types'
 import { usePos, folioBalance } from '../store/pos'
 import { computeTotals, formatMoney, round2 } from '../lib/money'
-import { useAuth } from '../lib/authContext'
-import { can } from '../lib/permissions'
+import { useManagerApproval } from '../components/useManagerApproval'
 import { TopBar } from '../components/TopBar'
 import { Numpad } from '../components/Numpad'
 import { Modal } from '../components/Modal'
@@ -20,7 +19,7 @@ export function SettleScreen() {
   const settleTicket = usePos((s) => s.settleTicket)
   const clearActive = usePos((s) => s.clearActive)
 
-  const { role } = useAuth()
+  const approval = useManagerApproval()
   const [buffer, setBuffer] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [confirmRoomCharge, setConfirmRoomCharge] = useState(false)
@@ -198,10 +197,9 @@ export function SettleScreen() {
             disabled={!canRoomCharge}
           />
           <Tender
-            label="Comp"
-            sub={can(role, 'comp') ? 'Complimentary' : 'Manager only'}
-            onClick={() => doSettle('COMP')}
-            disabled={!can(role, 'comp')}
+            label={`Comp${approval.locked('comp') ? ' 🔒' : ''}`}
+            sub={approval.locked('comp') ? 'Manager PIN required' : 'Complimentary'}
+            onClick={() => approval.request('comp', 'Comp this ticket', () => doSettle('COMP'))}
           />
         </section>
       </div>
@@ -274,6 +272,8 @@ export function SettleScreen() {
           </button>
         </div>
       </Modal>
+
+      {approval.dialog}
     </div>
   )
 }

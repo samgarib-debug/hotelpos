@@ -10,6 +10,8 @@ import { TopBar } from '../components/TopBar'
 import { Modal } from '../components/Modal'
 import { CheckInDialog } from '../components/CheckInDialog'
 import { FolioDialog } from '../components/FolioDialog'
+import { SetPinDialog } from '../components/SetPinDialog'
+import { supabaseEnabled } from '../lib/supabase'
 
 const LEGEND: { label: string; colorVar: string }[] = [
   { label: 'Vacant · Clean', colorVar: 'var(--color-room-vacant)' },
@@ -36,6 +38,7 @@ export function RoomsBoard() {
   const [checkInFor, setCheckInFor] = useState<Room | null>(null)
   const [folioFor, setFolioFor] = useState<Room | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showSetPin, setShowSetPin] = useState(false)
 
   const floors = useMemo(
     () => Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b),
@@ -201,8 +204,22 @@ export function RoomsBoard() {
       <Modal open={showSettings} onClose={() => setShowSettings(false)} title="Settings">
         <div className="flex flex-col gap-3 p-5">
           <div className="text-sm text-muted">
-            Standalone folio mode · single property · Phase 1 MVP
+            Single property · {supabaseEnabled ? 'online backend' : 'local/offline mode'}
           </div>
+          {supabaseEnabled && can(role, 'set_pin') && (
+            <button
+              className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
+              onClick={() => {
+                setShowSettings(false)
+                setShowSetPin(true)
+              }}
+            >
+              Set my manager PIN
+              <div className="text-sm font-normal text-muted">
+                Staff enter it to get your approval at the till
+              </div>
+            </button>
+          )}
           {can(role, 'reset_data') ? (
             <button
               className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
@@ -222,6 +239,8 @@ export function RoomsBoard() {
           )}
         </div>
       </Modal>
+
+      <SetPinDialog open={showSetPin} onClose={() => setShowSetPin(false)} />
     </div>
   )
 }

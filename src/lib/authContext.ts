@@ -6,7 +6,11 @@ export interface AuthInfo {
   role: Role
 }
 
-/** Default = local/offline mode (no backend): full access, no account. */
-export const AuthContext = createContext<AuthInfo>({ email: null, role: 'admin' })
+/** Default = local/offline mode (no backend): full access, no account.
+ *  VITE_DEFAULT_ROLE overrides the local-mode role (handy for testing the
+ *  staff experience without a backend). */
+const localRole = ((import.meta.env.VITE_DEFAULT_ROLE as Role) || 'admin') as Role
+
+export const AuthContext = createContext<AuthInfo>({ email: null, role: localRole })
 
 export const useAuth = () => useContext(AuthContext)

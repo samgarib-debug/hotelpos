@@ -7,6 +7,7 @@ export type Permission =
   | 'cancel_booking' // cancel a reservation/booking
   | 'reports' // view the Reports section
   | 'reset_data' // reset demo data
+  | 'set_pin' // set own manager approval PIN
   | 'manage_staff' // view staff & assign roles
 
 const MANAGER: Permission[] = [
@@ -16,6 +17,7 @@ const MANAGER: Permission[] = [
   'cancel_booking',
   'reports',
   'reset_data',
+  'set_pin',
 ]
 
 const GRANTS: Record<Role, Permission[]> = {

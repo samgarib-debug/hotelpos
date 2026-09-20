@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { Booking, BookingStatus } from '../types'
 import { usePos, folioBalance } from '../store/pos'
 import { formatMoney, round2 } from '../lib/money'
-import { useAuth } from '../lib/authContext'
-import { can } from '../lib/permissions'
+import { useManagerApproval } from './useManagerApproval'
 import { fmtDate, fmtDateTime, fmtTime } from '../lib/date'
 import { Modal } from './Modal'
 import { FolioDialog } from './FolioDialog'
@@ -34,7 +33,7 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
   const checkOutBooking = usePos((s) => s.checkOutBooking)
   const cancelBooking = usePos((s) => s.cancelBooking)
   const selectRoom = usePos((s) => s.selectRoom)
-  const { role } = useAuth()
+  const approval = useManagerApproval()
   const [error, setError] = useState<string | null>(null)
   const [showFolio, setShowFolio] = useState(false)
 
@@ -131,15 +130,16 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
                   Check in
                 </button>
                 <button
-                  disabled={!can(role, 'cancel_booking')}
-                  title={!can(role, 'cancel_booking') ? 'Cancelling needs a manager' : undefined}
-                  className="tap rounded-btn bg-panel-2 px-4 py-3 font-semibold text-danger hover:bg-panel-3 disabled:opacity-40"
-                  onClick={() => {
-                    cancelBooking(booking.id)
-                    onClose()
-                  }}
+                  title={approval.locked('cancel_booking') ? 'Manager PIN required' : undefined}
+                  className="tap rounded-btn bg-panel-2 px-4 py-3 font-semibold text-danger hover:bg-panel-3"
+                  onClick={() =>
+                    approval.request('cancel_booking', `Cancel ${booking.ref}`, () => {
+                      cancelBooking(booking.id)
+                      onClose()
+                    })
+                  }
                 >
-                  Cancel
+                  Cancel{approval.locked('cancel_booking') ? ' 🔒' : ''}
                 </button>
               </>
             )}
@@ -179,6 +179,8 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
           onClose()
         }}
       />
+
+      {approval.dialog}
     </>
   )
 }
