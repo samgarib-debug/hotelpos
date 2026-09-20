@@ -129,26 +129,67 @@ function collectionRows(state: any, spec: Spec): any[] {
   return (items as any[]).map(spec.toRow)
 }
 
+/** Only the rows whose object reference changed since the previous state.
+ *  The store updates immutably, so an untouched item keeps its reference —
+ *  this keeps pushes small and stops one rejected row (e.g. a stale copy of
+ *  another till's ticket) from aborting unrelated writes. */
+function changedRows(state: any, prev: any, spec: Spec): any[] {
+  const cur = state[spec.field]
+  const old = prev[spec.field] ?? (spec.record ? {} : [])
+  if (spec.record) {
+    return (Object.values(cur) as any[]).filter((it) => old[it.id] !== it).map(spec.toRow)
+  }
+  const oldById = new Map((old as any[]).map((x) => [x.id, x]))
+  return (cur as any[]).filter((it) => oldById.get(it.id) !== it).map(spec.toRow)
+}
+
+/** Surface a failed push to the UI (Layout shows a banner) — a silent
+ *  console.error hides real data divergence from the till. */
+function reportSyncError(table: string, message: string) {
+  console.error('[sync] upsert failed:', table, message)
+  window.dispatchEvent(
+    new CustomEvent('hotelpos:sync-error', { detail: { table, message } }),
+  )
+}
+
 async function bootstrap() {
   const s = usePos.getState()
-  await supabase!.from('config').upsert(configRow(s))
+  const { error: cfgError } = await supabase!.from('config').upsert(configRow(s))
+  if (cfgError) reportSyncError('config', cfgError.message)
   await Promise.all(
-    SPECS.map((spec) => {
+    SPECS.map(async (spec) => {
       const rows = collectionRows(s, spec)
-      return rows.length ? supabase!.from(spec.table).upsert(rows) : Promise.resolve()
+      if (!rows.length) return
+      const { error } = await supabase!.from(spec.table).upsert(rows)
+      if (error) reportSyncError(spec.table, error.message)
     }),
   )
 }
 
-async function hydrate() {
+/** Returns false when the backend is uninitialised and this client may not
+ *  seed it (staff can't insert the seed's COMP/CANCELLED rows past the DB
+ *  guards — a manager/admin session must be the first to open a fresh DB). */
+async function hydrate(canSeed: boolean): Promise<boolean> {
   const { data: cfg } = await supabase!.from('config').select('*').eq('id', 'default').maybeSingle()
   if (!cfg) {
+    if (!canSeed) {
+      reportSyncError(
+        'config',
+        'Backend not initialised — a manager or admin must open the app once to seed it.',
+      )
+      return false
+    }
     await bootstrap()
-    return
+    return true
   }
   const results = await Promise.all(SPECS.map((spec) => supabase!.from(spec.table).select('*')))
   const patch: any = configPatch(cfg)
   SPECS.forEach((spec, i) => {
+    if (results[i].error) {
+      // Keep the local copy of this collection rather than wiping it.
+      reportSyncError(spec.table, results[i].error!.message)
+      return
+    }
     const rows = results[i].data ?? []
     const items = rows.map(spec.fromRow)
     patch[spec.field] = spec.record
@@ -156,6 +197,7 @@ async function hydrate() {
       : items
   })
   withSuppress(() => usePos.setState(patch))
+  return true
 }
 
 function push(table: string, rows: any[]) {
@@ -164,7 +206,7 @@ function push(table: string, rows: any[]) {
     .from(table)
     .upsert(rows)
     .then(({ error }) => {
-      if (error) console.error('[sync] upsert failed:', table, error.message)
+      if (error) reportSyncError(table, error.message)
     })
 }
 
@@ -175,10 +217,10 @@ function startWriteThrough() {
       supabase!
         .from('config')
         .upsert(configRow(state))
-        .then(({ error }) => error && console.error('[sync] upsert failed: config', error.message))
+        .then(({ error }) => error && reportSyncError('config', error.message))
     }
     for (const spec of SPECS) {
-      if (state[spec.field] !== prev[spec.field]) push(spec.table, collectionRows(state, spec))
+      if (state[spec.field] !== prev[spec.field]) push(spec.table, changedRows(state, prev, spec))
     }
   })
 }
@@ -214,15 +256,19 @@ function startRealtime() {
 
 let started = false
 
-/** Call once on app start. No-op when Supabase env vars aren't set. */
-export async function initSync() {
+/** Call once on app start (after the role is known). No-op when Supabase env
+ *  vars aren't set. `canSeed` gates bootstrap-if-empty to manager/admin. */
+export async function initSync(opts?: { canSeed?: boolean }) {
   if (!supabaseEnabled || !supabase || started) return
   started = true
+  let hydrated = false
   try {
-    await hydrate()
+    hydrated = await hydrate(opts?.canSeed ?? false)
   } catch (e) {
     console.error('[sync] hydrate failed', e)
+    reportSyncError('config', 'Could not load data from the backend — working locally this session.')
   }
+  if (!hydrated) return // uninitialised backend: stay local-only this session
   startWriteThrough()
   startRealtime()
 }

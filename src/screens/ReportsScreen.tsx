@@ -306,6 +306,15 @@ interface ApprovalRow {
 
 const APPROVALS_LIMIT = 200
 
+/** Approval rows store the permission slug (matched by the DB guard triggers). */
+const ACTION_LABELS: Record<string, string> = {
+  discount: 'Apply discount',
+  void_submitted: 'Void submitted line',
+  comp: 'Comp ticket',
+  cancel_booking: 'Cancel booking',
+}
+const actionLabel = (a: string) => ACTION_LABELS[a] ?? a
+
 function ApprovalsReport({ range }: { range: DateRange }) {
   const [rows, setRows] = useState<ApprovalRow[]>([])
   const [people, setPeople] = useState<Map<string, string>>(new Map())
@@ -360,7 +369,10 @@ function ApprovalsReport({ range }: { range: DateRange }) {
   const failed = rows.filter((r) => !r.success)
   const staffInvolved = new Set(rows.map((r) => r.requested_by)).size
   const byAction = Array.from(
-    rows.reduce((m, r) => m.set(r.action, (m.get(r.action) ?? 0) + 1), new Map<string, number>()),
+    rows.reduce(
+      (m, r) => m.set(actionLabel(r.action), (m.get(actionLabel(r.action)) ?? 0) + 1),
+      new Map<string, number>(),
+    ),
   )
     .map(([label, value]) => ({ label, value }))
     .sort((a, b) => b.value - a.value)
@@ -401,7 +413,7 @@ function ApprovalsReport({ range }: { range: DateRange }) {
               {rows.map((r) => (
                 <tr key={r.id} className="border-t border-line/60">
                   <td className="py-2 pr-3 whitespace-nowrap text-muted">{fmtDateTime(r.created_at)}</td>
-                  <td className="py-2 pr-3 font-medium">{r.action}</td>
+                  <td className="py-2 pr-3 font-medium">{actionLabel(r.action)}</td>
                   <td className="py-2 pr-3">{name(r.requested_by)}</td>
                   <td className="py-2 pr-3">{name(r.approved_by)}</td>
                   <td className="py-2">

@@ -129,19 +129,26 @@ export function OrderScreen() {
                 </div>
                 {l.state !== 'VOID' && (
                   <div className="mt-1 flex items-center gap-1">
-                    <button
-                      className="tap h-8 w-8 rounded bg-panel-2 text-lg hover:bg-panel-3"
-                      onClick={() => setLineQty(l.id, l.qty - 1)}
-                    >
-                      −
-                    </button>
-                    <span className="w-8 text-center font-semibold">{l.qty}</span>
-                    <button
-                      className="tap h-8 w-8 rounded bg-panel-2 text-lg hover:bg-panel-3"
-                      onClick={() => setLineQty(l.id, l.qty + 1)}
-                    >
-                      +
-                    </button>
+                    {l.state === 'NEW' ? (
+                      <>
+                        <button
+                          className="tap h-8 w-8 rounded bg-panel-2 text-lg hover:bg-panel-3"
+                          onClick={() => setLineQty(l.id, l.qty - 1)}
+                        >
+                          −
+                        </button>
+                        <span className="w-8 text-center font-semibold">{l.qty}</span>
+                        <button
+                          className="tap h-8 w-8 rounded bg-panel-2 text-lg hover:bg-panel-3"
+                          onClick={() => setLineQty(l.id, l.qty + 1)}
+                        >
+                          +
+                        </button>
+                      </>
+                    ) : (
+                      // Submitted lines are locked: void + re-add to change qty.
+                      <span className="px-1 text-sm font-semibold text-muted">× {l.qty}</span>
+                    )}
                     <span className="ml-1 text-xs text-muted">
                       @ {formatMoney(l.unitPrice, config)}
                     </span>
@@ -231,7 +238,7 @@ export function OrderScreen() {
       <footer className="flex shrink-0 gap-2 border-t border-line bg-surface p-2">
         <FuncBtn onClick={submitTicket}>Submit / KOT</FuncBtn>
         <FuncBtn
-          onClick={() => approval.request('discount', 'Apply discount', () => setShowDiscount(true))}
+          onClick={() => setShowDiscount(true)}
           title={approval.locked('discount') ? 'Manager PIN required' : undefined}
         >
           Discount{approval.locked('discount') ? ' 🔒' : ''}
@@ -254,8 +261,11 @@ export function OrderScreen() {
               key={pct}
               className="tap rounded-btn bg-panel-2 py-6 text-xl font-bold hover:bg-panel-3"
               onClick={() => {
-                setDiscount(pct / 100)
+                // PIN at apply time so the approval is fresh when the write syncs.
                 setShowDiscount(false)
+                approval.request('discount', `Apply ${pct}% discount`, () =>
+                  setDiscount(pct / 100),
+                )
               }}
             >
               {pct}%

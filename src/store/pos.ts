@@ -249,6 +249,8 @@ export const usePos = create<PosState>()(
         let lines = ticket.lines
         const line = lines.find((l) => l.id === lineId)
         if (!line) return
+        // Submitted lines are locked (server enforces this too): void + re-add.
+        if (line.state !== 'NEW') return
         if (qty <= 0 && line.state === 'NEW') {
           lines = lines.filter((l) => l.id !== lineId)
         } else {

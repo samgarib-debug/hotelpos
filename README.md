@@ -83,8 +83,32 @@ their own, and self role-escalation is blocked at the RLS layer.
 | Staff management (assign roles) | | | ✓ |
 
 UI gating lives in `src/lib/permissions.ts` (`can(role, permission)`); the role is
-served through `AuthGate` → `useAuth()`. Note: action-level rules are enforced in the
-UI — hard server-side enforcement per action (e.g. via RPCs) is future hardening.
+served through `AuthGate` → `useAuth()`.
+
+**Server-side enforcement** (`supabase/migrations/0005_server_enforcement.sql`):
+the gated till actions are also enforced by database triggers, so a tampered client
+with a staff JWT can't bypass the UI. Discount changes, voiding/editing/removing an
+already-submitted ticket line, ticket voids/reopens (only OPEN→SETTLED is ungated),
+COMP payments, and any off-path booking status change (cancel, no-show, un-cancel —
+only check-in/check-out transitions are ungated) require the caller to be
+manager/admin (`app_role()`) or to hold a fresh manager-PIN approval —
+`verify_manager_pin` logs the approval and the guard trigger consumes it (one
+approval = one action, 2-minute validity, race-safe via `FOR UPDATE SKIP LOCKED`).
+Payments and folio ledger lines are append-only for staff (managers/admins may
+correct them — this also lets *Reset demo data* re-date the seeded history), row
+ids are immutable, closed folios can't be reopened by staff, state columns have
+CHECK whitelists, ticket lines must be well-formed unique-id arrays, DELETE on
+all app tables is manager/admin only, and PIN brute-force is capped (5 fails/
+5 min + 20 fails/24 h per user + 50 fails/24 h property-wide, so throwaway
+sign-ups can't reset the budget). Service-role writes (seed reloads, SQL editor)
+bypass the guards. Failed pushes surface as a red banner at the till.
+
+Known residuals: totals/amounts are still computed client-side, so a tampered
+client could record an understated payment or fabricate ledger lines; a PIN
+approval authorizes an action *type* for 2 minutes, not one specific ticket.
+Closing both needs server-priced settlement RPCs (next hardening step). Also
+disable public sign-ups in the Supabase dashboard once your staff accounts
+exist — any successful sign-up gets staff-level data access.
 
 **Manager PIN override at the till:** staff tapping a locked action (discount, comp,
 void-after-KOT, cancel booking) get a PIN pad; a manager's PIN approves that single

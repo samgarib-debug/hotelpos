@@ -4,7 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase, supabaseEnabled } from '../lib/supabase'
 import { initSync } from '../lib/sync'
 import { AuthContext } from '../lib/authContext'
-import type { Role } from '../lib/permissions'
+import { can, type Role } from '../lib/permissions'
 import { LoginScreen } from '../screens/LoginScreen'
 
 /** Gates the app behind Supabase Auth when a backend is configured and
@@ -20,13 +20,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (!supabaseEnabled || !supabase) return
     let active = true
 
-    const loadRole = async (userId: string) => {
+    const loadRole = async (userId: string): Promise<Role> => {
       const { data } = await supabase!
         .from('profiles')
         .select('role')
         .eq('id', userId)
         .maybeSingle()
-      if (active && data?.role) setRole(data.role as Role)
+      const r = (data?.role as Role | undefined) ?? 'staff'
+      if (active) setRole(r)
+      return r
     }
 
     const onSession = (s: Session | null) => {
@@ -34,8 +36,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setSession(s)
       if (s) {
         supabase!.realtime.setAuth(s.access_token)
-        void initSync()
-        void loadRole(s.user.id)
+        // Role first: bootstrap-if-empty is only allowed for manager/admin
+        // (the seed contains rows staff can't insert past the DB guards).
+        void loadRole(s.user.id).then((r) => initSync({ canSeed: can(r, 'reset_data') }))
       } else {
         setRole('staff')
       }

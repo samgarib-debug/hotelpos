@@ -5,6 +5,7 @@ import { can, type Permission } from '../lib/permissions'
 import { PinDialog } from './PinDialog'
 
 interface Pending {
+  perm: Permission
   label: string
   run: () => void
 }
@@ -29,13 +30,14 @@ export function useManagerApproval() {
       run()
       return
     }
-    setPending({ label, run })
+    setPending({ perm, label, run })
   }
 
   const dialog: ReactNode = (
     <>
       <PinDialog
         open={!!pending}
+        perm={pending?.perm ?? ''}
         action={pending?.label ?? ''}
         onClose={() => setPending(null)}
         onApproved={(manager) => {

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   CalendarDays,
@@ -6,6 +7,7 @@ import {
   BarChart3,
   Users,
   LogOut,
+  X,
 } from 'lucide-react'
 import { usePos } from '../store/pos'
 import { signOut } from '../lib/auth'
@@ -28,6 +30,37 @@ const NAV: NavItem[] = [
   { to: '/reports', label: 'Reports', icon: BarChart3, end: false, perm: 'reports' },
   { to: '/staff', label: 'Staff', icon: Users, end: false, perm: 'manage_staff' },
 ]
+
+/** Banner for failed backend writes (dispatched by src/lib/sync.ts) — a
+ *  rejected push means the till and the backend have diverged. */
+function SyncErrorBanner() {
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const onError = (e: Event) => {
+      const d = (e as CustomEvent).detail as { table: string; message: string }
+      setError(`Sync failed (${d.table}): ${d.message}`)
+    }
+    window.addEventListener('hotelpos:sync-error', onError)
+    return () => window.removeEventListener('hotelpos:sync-error', onError)
+  }, [])
+
+  if (!error) return null
+  return (
+    <div className="absolute inset-x-0 top-0 z-50 flex items-center gap-3 bg-danger px-4 py-2 text-sm font-semibold text-white shadow-lg">
+      <span className="min-w-0 flex-1 truncate" title={error}>
+        {error} — this change may not be saved to the backend.
+      </span>
+      <button
+        onClick={() => setError(null)}
+        className="tap flex h-7 w-7 shrink-0 items-center justify-center rounded bg-white/15 hover:bg-white/25"
+        title="Dismiss"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
 
 export function Layout() {
   const config = usePos((s) => s.config)
@@ -79,7 +112,8 @@ export function Layout() {
           </div>
         </div>
       </nav>
-      <main className="min-w-0 flex-1">
+      <main className="relative min-w-0 flex-1">
+        <SyncErrorBanner />
         <Outlet />
       </main>
     </div>

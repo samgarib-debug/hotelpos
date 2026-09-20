@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import type { Permission } from '../lib/permissions'
 import { Modal } from './Modal'
 
 interface PinDialogProps {
   open: boolean
+  perm: Permission | '' // stable slug logged to the audit trail & matched by the DB guards
   action: string // human label, e.g. "Apply discount"
   onClose: () => void
   onApproved: (managerName: string) => void
@@ -12,7 +14,7 @@ interface PinDialogProps {
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 
 /** Manager-PIN approval pad. Verifies server-side via verify_manager_pin(). */
-export function PinDialog({ open, action, onClose, onApproved }: PinDialogProps) {
+export function PinDialog({ open, perm, action, onClose, onApproved }: PinDialogProps) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -40,7 +42,7 @@ export function PinDialog({ open, action, onClose, onApproved }: PinDialogProps)
     setError(null)
     const { data, error } = await supabase.rpc('verify_manager_pin', {
       pin,
-      action_name: action,
+      action_name: perm || action,
     })
     setBusy(false)
     if (error) {
