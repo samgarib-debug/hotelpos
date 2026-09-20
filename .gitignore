@@ -44,3 +44,4 @@ build/icon-512.png
 *.msi
 
 seed-dump-*.sql
+dist-local-test
