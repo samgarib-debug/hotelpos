@@ -19,6 +19,23 @@ import type {
 } from '../types'
 import { computeTotals, round2 } from '../lib/money'
 import { overlaps, ymd } from '../lib/date'
+import { supabaseEnabled } from '../lib/supabase'
+import { settlementRpc } from '../lib/rpc'
+import { reportSyncError, syncActive } from '../lib/sync'
+
+/** Server-priced settlement path: only when the backend is configured AND
+ *  sync actually started. */
+const online = () => supabaseEnabled && syncActive()
+
+/** A backend-configured till whose sync is NOT running (backend unreachable,
+ *  uninitialised, or still connecting). Money must not be recorded in this
+ *  state: local writes would be silently erased by the next hydrate, leaving
+ *  cash in the drawer with no record anywhere. Offline/desktop builds
+ *  (supabaseEnabled=false) are unaffected and keep full local behavior. */
+const degraded = () => supabaseEnabled && !syncActive()
+const DEGRADED_MSG =
+  'Backend not connected — the till cannot record this right now. ' +
+  'Try again in a moment, or reload the till once the connection is back.'
 import {
   buildSeed,
   seedCategories,
@@ -91,15 +108,19 @@ interface PosState {
   settleTicket: (
     kind: PaymentKind,
     opts?: { tendered?: number },
-  ) => LastSettlement | { error: string }
+  ) => Promise<LastSettlement | { error: string }>
   checkInRoom: (
     roomId: string,
     guestName: string,
     nights: number,
     nightlyRate: number,
   ) => void
-  postFolioPayment: (folioId: string, kind: PaymentKind, amount: number) => void
-  checkOutRoom: (roomId: string) => { ok: true } | { error: string }
+  postFolioPayment: (
+    folioId: string,
+    kind: PaymentKind,
+    amount: number,
+  ) => Promise<{ ok: true } | { error: string }>
+  checkOutRoom: (roomId: string) => Promise<{ ok: true } | { error: string }>
   setRoomHousekeeping: (roomId: string, hk: Room['hk']) => void
   // Phase 2: bookings & reservations
   isRoomAvailable: (
@@ -110,8 +131,14 @@ interface PosState {
   ) => boolean
   createBooking: (input: NewBookingInput) => Booking | { error: string }
   cancelBooking: (id: string) => void
-  checkInBooking: (id: string) => { ok: true } | { error: string }
-  checkOutBooking: (id: string) => { ok: true } | { error: string }
+  checkInBooking: (id: string) => Promise<{ ok: true } | { error: string }>
+  checkOutBooking: (id: string) => Promise<{ ok: true } | { error: string }>
+  /** Retry posting a booking's prepaid credit (idempotent server-side) —
+   *  used when the credit RPC failed during check-in. */
+  applyPrepaidCredit: (
+    bookingId: string,
+    folioId: string,
+  ) => Promise<{ ok: true } | { error: string }>
   reseed: () => void
 }
 
@@ -307,12 +334,35 @@ export const usePos = create<PosState>()(
         set({ tickets: { ...s.tickets, [tid]: { ...ticket, lines } } })
       },
 
-      settleTicket: (kind, opts) => {
+      settleTicket: async (kind, opts) => {
+        if (degraded()) return { error: DEGRADED_MSG }
         const s = get()
         const tid = s.activeTicketId
         if (!tid) return { error: 'No active ticket' }
         const ticket = s.tickets[tid]
         if (!ticket) return { error: 'Ticket not found' }
+
+        if (online()) {
+          // Server-priced: the RPC prices the ticket from the products
+          // catalog, records the payment and settles — we merge its rows.
+          const res = await settlementRpc('settle_ticket', {
+            p_ticket_id: tid,
+            p_kind: kind,
+            p_tendered: opts?.tendered ?? null,
+          })
+          if (res.error) return { error: res.error }
+          const tot = res.data?.totals ?? {}
+          const settlement: LastSettlement = {
+            ticketId: tid,
+            kind,
+            amount: Number(tot.grandTotal ?? 0),
+            tendered: tot.tendered != null ? Number(tot.tendered) : undefined,
+            change: tot.change != null ? Number(tot.change) : undefined,
+            at: nowISO(),
+          }
+          set({ lastSettlement: settlement })
+          return settlement
+        }
 
         const totals = computeTotals(ticket, s.config)
         const grandTotal = totals.grandTotal
@@ -394,6 +444,10 @@ export const usePos = create<PosState>()(
       },
 
       checkInRoom: (roomId, guestName, nights, nightlyRate) => {
+        if (degraded()) {
+          reportSyncError('folios', DEGRADED_MSG)
+          return
+        }
         const s = get()
         const room = s.rooms.find((r) => r.id === roomId)
         if (!room || room.fo === 'OCCUPIED') return
@@ -408,12 +462,13 @@ export const usePos = create<PosState>()(
           status: 'OPEN',
           openedAt: nowISO(),
         }
+        const stayAmount = round2(nights * nightlyRate)
         const roomNight: FolioLine = {
           id: nanoid(),
           folioId,
           type: 'CHARGE',
           description: `Room charge x${nights} night(s) — ${room.roomType}`,
-          amount: round2(nights * nightlyRate),
+          amount: stayAmount,
           businessDate: s.config.businessDate,
           postedAt: nowISO(),
           sourceRef: 'ROOM_NIGHT',
@@ -423,7 +478,8 @@ export const usePos = create<PosState>()(
         set({
           seq: s.seq + 1,
           folios: { ...s.folios, [folioId]: folio },
-          folioLines: [...s.folioLines, roomNight],
+          // zero-rate stays post no charge (the DB only accepts positive ones)
+          folioLines: stayAmount > 0 ? [...s.folioLines, roomNight] : s.folioLines,
           rooms: s.rooms.map((r) =>
             r.id === roomId
               ? {
@@ -439,9 +495,22 @@ export const usePos = create<PosState>()(
         })
       },
 
-      postFolioPayment: (folioId, kind, amount) => {
+      postFolioPayment: async (folioId, kind, amount) => {
+        if (degraded()) return { error: DEGRADED_MSG }
         const s = get()
-        if (amount <= 0) return
+        if (amount <= 0) return { error: 'Payment amount must be positive' }
+
+        if (online()) {
+          // Server-validated: positive, folio open, capped at the ledger balance.
+          const res = await settlementRpc('post_folio_payment', {
+            p_folio_id: folioId,
+            p_kind: kind,
+            p_amount: round2(amount),
+          })
+          if (res.error) return { error: res.error }
+          return { ok: true as const }
+        }
+
         const line: FolioLine = {
           id: nanoid(),
           folioId,
@@ -465,26 +534,38 @@ export const usePos = create<PosState>()(
           folioLines: [...s.folioLines, line],
           payments: [...s.payments, payment],
         })
+        return { ok: true as const }
       },
 
-      checkOutRoom: (roomId) => {
-        const s = get()
-        const room = s.rooms.find((r) => r.id === roomId)
+      checkOutRoom: async (roomId) => {
+        if (degraded()) return { error: DEGRADED_MSG }
+        const room = get().rooms.find((r) => r.id === roomId)
         if (!room?.folioId) return { error: 'No open folio for this room' }
-        const bal = folioBalance(s.folioLines, room.folioId)
-        if (bal > 0.001) {
-          return {
-            error: `Folio balance is ${bal.toFixed(2)}. Settle to zero before check-out.`,
+
+        if (online()) {
+          // The RPC verifies the ledger balance is zero and closes the folio;
+          // its updated folio row is merged, so only rooms/bookings remain.
+          const res = await settlementRpc('close_folio', { p_folio_id: room.folioId })
+          if (res.error) return { error: res.error }
+        } else {
+          const bal = folioBalance(get().folioLines, room.folioId)
+          if (bal > 0.001) {
+            return {
+              error: `Folio balance is ${bal.toFixed(2)}. Settle to zero before check-out.`,
+            }
           }
         }
+
+        const s = get()
         const folio = s.folios[room.folioId]
         set({
-          folios: folio
-            ? {
-                ...s.folios,
-                [folio.id]: { ...folio, status: 'CLOSED', closedAt: nowISO() },
-              }
-            : s.folios,
+          folios:
+            !online() && folio
+              ? {
+                  ...s.folios,
+                  [folio.id]: { ...folio, status: 'CLOSED', closedAt: nowISO() },
+                }
+              : s.folios,
           rooms: s.rooms.map((r) =>
             r.id === roomId
               ? {
@@ -525,6 +606,7 @@ export const usePos = create<PosState>()(
       },
 
       createBooking: (input) => {
+        if (degraded()) return { error: DEGRADED_MSG }
         const s = get()
         if (input.end <= input.start) return { error: 'End must be after start.' }
         if (!s.isRoomAvailable(input.roomId, input.start, input.end)) {
@@ -570,8 +652,9 @@ export const usePos = create<PosState>()(
         }
 
         // Prepaid deposit recorded as a Payment (not yet on a folio).
+        // Online, the server records it from the booking row (RPC below).
         const payments =
-          kind === 'BOOKING' && input.paymentKind
+          kind === 'BOOKING' && input.paymentKind && !online()
             ? [
                 ...s.payments,
                 {
@@ -590,6 +673,14 @@ export const usePos = create<PosState>()(
           bookings: [...s.bookings, booking],
           payments,
         })
+        if (kind === 'BOOKING' && input.paymentKind && online()) {
+          void settlementRpc('record_booking_deposit', { p_booking_id: booking.id }).then(
+            (res) => {
+              if (res.error)
+                reportSyncError('payments', `Booking deposit not recorded: ${res.error}`)
+            },
+          )
+        }
         return booking
       },
 
@@ -602,7 +693,8 @@ export const usePos = create<PosState>()(
           ),
         })),
 
-      checkInBooking: (id) => {
+      checkInBooking: async (id) => {
+        if (degraded()) return { error: DEGRADED_MSG }
         const s = get()
         const b = s.bookings.find((x) => x.id === id)
         if (!b) return { error: 'Booking not found' }
@@ -630,8 +722,10 @@ export const usePos = create<PosState>()(
             ? `Room charge x${b.nights ?? 1} night(s) — ${room.roomType}`
             : `Room booking (day-use) — ${room.roomType}`
 
-        const lines: FolioLine[] = [
-          {
+        const lines: FolioLine[] = []
+        if (round2(b.total) > 0) {
+          // zero-total stays post no charge (the DB only accepts positive ones)
+          lines.push({
             id: nanoid(),
             folioId,
             type: 'CHARGE',
@@ -642,9 +736,11 @@ export const usePos = create<PosState>()(
             sourceRef: b.ref,
             idempotencyKey: `stay-${b.id}`,
             isReversed: false,
-          },
-        ]
-        if (b.amountPaid > 0) {
+          })
+        }
+        // Online, the prepaid credit is posted server-side from the booking
+        // row (post_prepaid_credit RPC below) — the ledger stays RPC-priced.
+        if (b.amountPaid > 0 && !online()) {
           lines.push({
             id: nanoid(),
             folioId,
@@ -679,15 +775,24 @@ export const usePos = create<PosState>()(
             x.id === id ? { ...x, status: 'CHECKED_IN', folioId } : x,
           ),
         })
+        if (b.amountPaid > 0 && online()) {
+          const res = await settlementRpc('post_prepaid_credit', {
+            p_booking_id: b.id,
+            p_folio_id: folioId,
+          })
+          if (res.error) {
+            return { error: `Checked in, but the prepaid credit failed to post: ${res.error}` }
+          }
+        }
         return { ok: true }
       },
 
-      checkOutBooking: (id) => {
+      checkOutBooking: async (id) => {
         const s = get()
         const b = s.bookings.find((x) => x.id === id)
         if (!b) return { error: 'Booking not found' }
         if (b.status !== 'CHECKED_IN') return { error: 'Booking is not checked in.' }
-        const res = get().checkOutRoom(b.roomId)
+        const res = await get().checkOutRoom(b.roomId)
         if ('error' in res) return res
         set((st) => ({
           bookings: st.bookings.map((x) =>
@@ -695,6 +800,16 @@ export const usePos = create<PosState>()(
           ),
         }))
         return { ok: true }
+      },
+
+      applyPrepaidCredit: async (bookingId, folioId) => {
+        if (!online()) return { error: 'Backend not connected' }
+        const res = await settlementRpc('post_prepaid_credit', {
+          p_booking_id: bookingId,
+          p_folio_id: folioId,
+        })
+        if (res.error) return { error: res.error }
+        return { ok: true as const }
       },
 
       reseed: () =>

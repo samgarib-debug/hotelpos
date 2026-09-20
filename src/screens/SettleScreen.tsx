@@ -47,7 +47,12 @@ export function SettleScreen() {
   const change = round2(Math.max(0, tendered - total))
   const canRoomCharge = !!room?.folioId
 
-  const buildReceipt = (kind: PaymentKind, tend?: number, chg?: number): ReceiptData => {
+  const buildReceipt = (
+    kind: PaymentKind,
+    tend?: number,
+    chg?: number,
+    settledAmount?: number,
+  ): ReceiptData => {
     const meta = [
       { label: 'Ticket', value: ticket.number },
       { label: 'Room', value: room?.number ?? 'Walk-in' },
@@ -56,6 +61,9 @@ export function SettleScreen() {
     meta.push({ label: 'Date', value: config.businessDate })
     meta.push({ label: 'Tender', value: kind.replace('_', ' ') })
 
+    // The settled amount is server-priced and authoritative; the client
+    // breakdown rows are informational (they can lag a catalog edit).
+    const settled = settledAmount ?? total
     const totalsRows = [
       { label: 'Subtotal', value: formatMoney(totals.subtotal, config) },
       ...(totals.discount > 0
@@ -65,7 +73,7 @@ export function SettleScreen() {
         ? [{ label: 'Service', value: formatMoney(totals.service, config) }]
         : []),
       { label: 'Tax', value: formatMoney(totals.tax, config) },
-      { label: 'TOTAL', value: formatMoney(total, config), strong: true },
+      { label: 'TOTAL', value: formatMoney(settled, config), strong: true },
     ]
     if (kind === 'CASH' && tend != null) {
       totalsRows.push({ label: 'Cash', value: formatMoney(tend, config) })
@@ -94,14 +102,14 @@ export function SettleScreen() {
     }
   }
 
-  const doSettle = (kind: PaymentKind, tend?: number) => {
-    const res = settleTicket(kind, tend != null ? { tendered: tend } : undefined)
+  const doSettle = async (kind: PaymentKind, tend?: number) => {
+    const res = await settleTicket(kind, tend != null ? { tendered: tend } : undefined)
     if ('error' in res) {
       setError(res.error)
       return
     }
     setError(null)
-    setReceipt(buildReceipt(kind, res.tendered, res.change))
+    setReceipt(buildReceipt(kind, res.tendered, res.change, res.amount))
   }
 
   const onCash = () => {
@@ -110,7 +118,7 @@ export function SettleScreen() {
       setError('Cash tendered is less than the total.')
       return
     }
-    doSettle('CASH', tend)
+    void doSettle('CASH', tend)
   }
 
   const quickCash = (amt: number) => setBuffer(String(amt))

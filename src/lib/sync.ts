@@ -145,11 +145,37 @@ function changedRows(state: any, prev: any, spec: Spec): any[] {
 
 /** Surface a failed push to the UI (Layout shows a banner) — a silent
  *  console.error hides real data divergence from the till. */
-function reportSyncError(table: string, message: string) {
+export function reportSyncError(table: string, message: string) {
   console.error('[sync] upsert failed:', table, message)
   window.dispatchEvent(
     new CustomEvent('hotelpos:sync-error', { detail: { table, message } }),
   )
+}
+
+/* Pushes run serialized on one promise chain so writes reach the backend in
+ * the order they happened, and so RPC calls (which read server state, e.g.
+ * settle_ticket pricing the ticket's lines) can await everything in flight. */
+let pushChain: Promise<void> = Promise.resolve()
+
+function enqueuePush(run: () => Promise<void>) {
+  pushChain = pushChain.then(run).catch(() => undefined)
+}
+
+/** Resolves once every queued push has been sent (used before RPC calls). */
+export function syncFlush(): Promise<void> {
+  return pushChain
+}
+
+/** Merge rows returned by a settlement RPC (snake_case, keyed by table name)
+ *  into the local store without pushing them back — the server already has
+ *  them, and the matching realtime events will no-op against this merge. */
+export function applyServerRows(result: unknown) {
+  if (!result || typeof result !== 'object') return
+  for (const spec of SPECS) {
+    const rows = (result as Record<string, unknown>)[spec.table]
+    if (!Array.isArray(rows)) continue
+    for (const row of rows) mergeItem(spec, spec.fromRow(row))
+  }
 }
 
 async function bootstrap() {
@@ -170,7 +196,17 @@ async function bootstrap() {
  *  seed it (staff can't insert the seed's COMP/CANCELLED rows past the DB
  *  guards — a manager/admin session must be the first to open a fresh DB). */
 async function hydrate(canSeed: boolean): Promise<boolean> {
-  const { data: cfg } = await supabase!.from('config').select('*').eq('id', 'default').maybeSingle()
+  const { data: cfg, error: cfgError } = await supabase!
+    .from('config')
+    .select('*')
+    .eq('id', 'default')
+    .maybeSingle()
+  if (cfgError) {
+    // A failed select is NOT an empty backend — never bootstrap over live
+    // data we simply couldn't read. Stay degraded this session.
+    reportSyncError('config', cfgError.message)
+    return false
+  }
   if (!cfg) {
     if (!canSeed) {
       reportSyncError(
@@ -183,13 +219,15 @@ async function hydrate(canSeed: boolean): Promise<boolean> {
     return true
   }
   const results = await Promise.all(SPECS.map((spec) => supabase!.from(spec.table).select('*')))
+  const failed = SPECS.find((_, i) => results[i].error)
+  if (failed) {
+    // Partial state is worse than none: stay degraded rather than running
+    // against a backend we only half-read.
+    reportSyncError(failed.table, results[SPECS.indexOf(failed)].error!.message)
+    return false
+  }
   const patch: any = configPatch(cfg)
   SPECS.forEach((spec, i) => {
-    if (results[i].error) {
-      // Keep the local copy of this collection rather than wiping it.
-      reportSyncError(spec.table, results[i].error!.message)
-      return
-    }
     const rows = results[i].data ?? []
     const items = rows.map(spec.fromRow)
     patch[spec.field] = spec.record
@@ -202,22 +240,21 @@ async function hydrate(canSeed: boolean): Promise<boolean> {
 
 function push(table: string, rows: any[]) {
   if (!rows.length) return
-  supabase!
-    .from(table)
-    .upsert(rows)
-    .then(({ error }) => {
-      if (error) reportSyncError(table, error.message)
-    })
+  enqueuePush(async () => {
+    const { error } = await supabase!.from(table).upsert(rows)
+    if (error) reportSyncError(table, error.message)
+  })
 }
 
 function startWriteThrough() {
   usePos.subscribe((state: any, prev: any) => {
     if (suppress > 0) return
     if (state.config !== prev.config || state.workPeriodOpen !== prev.workPeriodOpen || state.seq !== prev.seq) {
-      supabase!
-        .from('config')
-        .upsert(configRow(state))
-        .then(({ error }) => error && reportSyncError('config', error.message))
+      const row = configRow(state)
+      enqueuePush(async () => {
+        const { error } = await supabase!.from('config').upsert(row)
+        if (error) reportSyncError('config', error.message)
+      })
     }
     for (const spec of SPECS) {
       if (state[spec.field] !== prev[spec.field]) push(spec.table, changedRows(state, prev, spec))
@@ -249,12 +286,24 @@ function startRealtime() {
     })
   }
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, (payload) => {
-    if (payload.new) withSuppress(() => usePos.setState(configPatch(payload.new) as any))
+    if (payload.eventType === 'DELETE') return
+    const row = payload.new as { id?: string } | null
+    // only the 'default' row drives the till (a DELETE payload is {} — truthy)
+    if (!row || row.id !== 'default') return
+    withSuppress(() => usePos.setState(configPatch(row) as any))
   })
   channel.subscribe()
 }
 
 let started = false
+let active = false
+
+/** True once hydrate succeeded and write-through/realtime are running.
+ *  The settlement RPCs are only used when this is true — a degraded online
+ *  session (backend unreachable/uninitialised) falls back to local mode. */
+export function syncActive(): boolean {
+  return active
+}
 
 /** Call once on app start (after the role is known). No-op when Supabase env
  *  vars aren't set. `canSeed` gates bootstrap-if-empty to manager/admin. */
@@ -271,4 +320,5 @@ export async function initSync(opts?: { canSeed?: boolean }) {
   if (!hydrated) return // uninitialised backend: stay local-only this session
   startWriteThrough()
   startRealtime()
+  active = true
 }

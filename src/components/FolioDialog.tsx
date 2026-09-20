@@ -16,8 +16,10 @@ export function FolioDialog({ open, room, onClose, onCheckedOut }: FolioDialogPr
   const config = usePos((s) => s.config)
   const folios = usePos((s) => s.folios)
   const folioLines = usePos((s) => s.folioLines)
+  const bookings = usePos((s) => s.bookings)
   const postFolioPayment = usePos((s) => s.postFolioPayment)
   const checkOutRoom = usePos((s) => s.checkOutRoom)
+  const applyPrepaidCredit = usePos((s) => s.applyPrepaidCredit)
   const [error, setError] = useState<string | null>(null)
   const [showReceipt, setShowReceipt] = useState(false)
 
@@ -28,6 +30,21 @@ export function FolioDialog({ open, room, onClose, onCheckedOut }: FolioDialogPr
     [folioLines, folioId],
   )
   const balance = folioId ? folioBalance(folioLines, folioId) : 0
+
+  // A checked-in booking whose prepaid credit never landed on this folio
+  // (the credit RPC failed during check-in) — offer an idempotent retry.
+  const pendingPrepaid = useMemo(
+    () =>
+      folioId
+        ? bookings.find(
+            (b) =>
+              b.folioId === folioId &&
+              b.amountPaid > 0 &&
+              !folioLines.some((l) => l.idempotencyKey === `prepaid-${b.id}`),
+          )
+        : undefined,
+    [bookings, folioLines, folioId],
+  )
 
   if (!room || !folio) return null
 
@@ -48,14 +65,14 @@ export function FolioDialog({ open, room, onClose, onCheckedOut }: FolioDialogPr
     footer: balance <= 0.001 ? 'PAID IN FULL — Thank you!' : 'Balance due',
   }
 
-  const settle = (kind: 'CASH' | 'CARD') => {
+  const settle = async (kind: 'CASH' | 'CARD') => {
     if (balance <= 0) return
-    postFolioPayment(folio.id, kind, balance)
-    setError(null)
+    const res = await postFolioPayment(folio.id, kind, balance)
+    setError('error' in res ? res.error : null)
   }
 
-  const doCheckout = () => {
-    const res = checkOutRoom(room.id)
+  const doCheckout = async () => {
+    const res = await checkOutRoom(room.id)
     if ('error' in res) {
       setError(res.error)
     } else {
@@ -112,6 +129,17 @@ export function FolioDialog({ open, room, onClose, onCheckedOut }: FolioDialogPr
           )}
 
           <div className="flex flex-wrap gap-2 border-t border-line p-4">
+            {pendingPrepaid && (
+              <button
+                className="tap w-full rounded-btn bg-warn/20 px-4 py-3 font-semibold text-warn hover:bg-warn/30"
+                onClick={async () => {
+                  const res = await applyPrepaidCredit(pendingPrepaid.id, folio.id)
+                  setError('error' in res ? res.error : null)
+                }}
+              >
+                Apply prepaid credit · {formatMoney(pendingPrepaid.amountPaid, config)}
+              </button>
+            )}
             <button
               disabled={balance <= 0}
               className="tap flex-1 rounded-btn bg-panel-2 px-4 py-3 font-semibold hover:bg-panel-3 disabled:opacity-40"

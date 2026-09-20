@@ -103,12 +103,29 @@ all app tables is manager/admin only, and PIN brute-force is capped (5 fails/
 sign-ups can't reset the budget). Service-role writes (seed reloads, SQL editor)
 bypass the guards. Failed pushes surface as a red banner at the till.
 
-Known residuals: totals/amounts are still computed client-side, so a tampered
-client could record an understated payment or fabricate ledger lines; a PIN
-approval authorizes an action *type* for 2 minutes, not one specific ticket.
-Closing both needs server-priced settlement RPCs (next hardening step). Also
-disable public sign-ups in the Supabase dashboard once your staff accounts
-exist — any successful sign-up gets staff-level data access.
+**Server-priced settlement** (`supabase/migrations/0007_settlement_rpcs.sql`):
+money is written only by SECURITY DEFINER RPCs that price from server state —
+`settle_ticket` prices the ticket from the **products catalog** (client line
+prices are ignored), applies the gated discount and the config tax/service
+rules, posts the folio charge and the payment, and settles; `post_folio_payment`
+validates interim payments against the ledger balance; `post_prepaid_credit` /
+`record_booking_deposit` take their amounts from the booking row (whose money
+fields are locked after creation); `close_folio` verifies a zero balance at
+check-out. The guards then close the direct staff paths: payment inserts,
+folio PAYMENT/adjustment lines, ticket settle transitions and folio closes are
+RPC-or-manager only; staff may still post positive CHARGEs (check-in room/stay
+charges). The product catalog and the tax/service/currency config are
+manager-only, and every payment and ledger line records `created_by`.
+Offline/desktop builds keep the pure-local computation (no backend, no
+triggers).
+
+Known residuals: front-desk **attestations** — the check-in rate and a
+booking's total/prepayment are typed in by staff at creation (the DB locks
+them afterwards and records who wrote what, but no POS can verify cash
+physically changed hands); a PIN approval authorizes an action *type* for
+2 minutes, not one specific ticket. Also disable public sign-ups in the
+Supabase dashboard once your staff accounts exist — any successful sign-up
+gets staff-level data access.
 
 **Manager PIN override at the till:** staff tapping a locked action (discount, comp,
 void-after-KOT, cancel booking) get a PIN pad; a manager's PIN approves that single

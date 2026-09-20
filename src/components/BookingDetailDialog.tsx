@@ -51,8 +51,8 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
       ? `${fmtDate(booking.start)} → ${fmtDate(booking.end)} · ${booking.nights} night(s)`
       : `${fmtDate(booking.start)} · ${fmtTime(booking.start)}–${fmtTime(booking.end)}`
 
-  const doCheckIn = () => {
-    const res = checkInBooking(booking.id)
+  const doCheckIn = async () => {
+    const res = await checkInBooking(booking.id)
     if ('error' in res) setError(res.error)
     else {
       setError(null)
@@ -60,8 +60,8 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
     }
   }
 
-  const doCheckOut = () => {
-    const res = checkOutBooking(booking.id)
+  const doCheckOut = async () => {
+    const res = await checkOutBooking(booking.id)
     if ('error' in res) setError(res.error)
     else {
       setError(null)
