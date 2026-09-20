@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Room } from '../types'
 import { usePos, folioBalance } from '../store/pos'
+import { useAuth } from '../lib/authContext'
+import { can } from '../lib/permissions'
 import { roomVisual } from '../lib/roomState'
 import { RoomButton } from '../components/RoomButton'
 import { TopBar } from '../components/TopBar'
@@ -19,6 +21,7 @@ const LEGEND: { label: string; colorVar: string }[] = [
 
 export function RoomsBoard() {
   const navigate = useNavigate()
+  const { role } = useAuth()
   const rooms = usePos((s) => s.rooms)
   const config = usePos((s) => s.config)
   const folioLines = usePos((s) => s.folioLines)
@@ -200,17 +203,23 @@ export function RoomsBoard() {
           <div className="text-sm text-muted">
             Standalone folio mode · single property · Phase 1 MVP
           </div>
-          <button
-            className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
-            onClick={() => {
-              if (confirm('Reset all demo data (rooms, folios, tickets)?')) {
-                reseed()
-                setShowSettings(false)
-              }
-            }}
-          >
-            Reset demo data
-          </button>
+          {can(role, 'reset_data') ? (
+            <button
+              className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
+              onClick={() => {
+                if (confirm('Reset all demo data (rooms, folios, tickets)?')) {
+                  reseed()
+                  setShowSettings(false)
+                }
+              }}
+            >
+              Reset demo data
+            </button>
+          ) : (
+            <div className="rounded-btn bg-panel-2 px-4 py-3 text-sm text-muted">
+              Resetting demo data needs a manager.
+            </div>
+          )}
         </div>
       </Modal>
     </div>

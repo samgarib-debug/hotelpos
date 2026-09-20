@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import type { PaymentKind } from '../types'
 import { usePos, folioBalance } from '../store/pos'
 import { computeTotals, formatMoney, round2 } from '../lib/money'
+import { useAuth } from '../lib/authContext'
+import { can } from '../lib/permissions'
 import { TopBar } from '../components/TopBar'
 import { Numpad } from '../components/Numpad'
 import { Modal } from '../components/Modal'
@@ -18,6 +20,7 @@ export function SettleScreen() {
   const settleTicket = usePos((s) => s.settleTicket)
   const clearActive = usePos((s) => s.clearActive)
 
+  const { role } = useAuth()
   const [buffer, setBuffer] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [confirmRoomCharge, setConfirmRoomCharge] = useState(false)
@@ -194,7 +197,12 @@ export function SettleScreen() {
             onClick={() => (canRoomCharge ? setConfirmRoomCharge(true) : undefined)}
             disabled={!canRoomCharge}
           />
-          <Tender label="Comp" sub="Complimentary" onClick={() => doSettle('COMP')} />
+          <Tender
+            label="Comp"
+            sub={can(role, 'comp') ? 'Complimentary' : 'Manager only'}
+            onClick={() => doSettle('COMP')}
+            disabled={!can(role, 'comp')}
+          />
         </section>
       </div>
 

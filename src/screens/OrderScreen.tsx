@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePos, folioBalance } from '../store/pos'
 import { computeTotals, formatMoney } from '../lib/money'
+import { useAuth } from '../lib/authContext'
+import { can } from '../lib/permissions'
 import { TopBar } from '../components/TopBar'
 import { Modal } from '../components/Modal'
 import { FolioDialog } from '../components/FolioDialog'
@@ -24,6 +26,7 @@ export function OrderScreen() {
   const setDiscount = usePos((s) => s.setDiscount)
   const submitTicket = usePos((s) => s.submitTicket)
 
+  const { role } = useAuth()
   const [showDiscount, setShowDiscount] = useState(false)
   const [showFolio, setShowFolio] = useState(false)
 
@@ -144,7 +147,13 @@ export function OrderScreen() {
                       @ {formatMoney(l.unitPrice, config)}
                     </span>
                     <button
-                      className="tap ml-auto h-8 rounded bg-panel-2 px-2 text-sm text-danger hover:bg-panel-3"
+                      disabled={l.state === 'SUBMITTED' && !can(role, 'void_submitted')}
+                      title={
+                        l.state === 'SUBMITTED' && !can(role, 'void_submitted')
+                          ? 'Voiding a sent item needs a manager'
+                          : undefined
+                      }
+                      className="tap ml-auto h-8 rounded bg-panel-2 px-2 text-sm text-danger hover:bg-panel-3 disabled:opacity-40"
                       onClick={() => voidLine(l.id)}
                     >
                       {l.state === 'NEW' ? 'Remove' : 'Void'}
@@ -217,7 +226,13 @@ export function OrderScreen() {
       {/* FUNCTION BAR */}
       <footer className="flex shrink-0 gap-2 border-t border-line bg-surface p-2">
         <FuncBtn onClick={submitTicket}>Submit / KOT</FuncBtn>
-        <FuncBtn onClick={() => setShowDiscount(true)}>Discount</FuncBtn>
+        <FuncBtn
+          onClick={() => setShowDiscount(true)}
+          disabled={!can(role, 'discount')}
+          title={!can(role, 'discount') ? 'Discounts need a manager' : undefined}
+        >
+          Discount
+        </FuncBtn>
         {room?.folioId && <FuncBtn onClick={() => setShowFolio(true)}>Folio</FuncBtn>}
         <button
           disabled={!canSettle}
@@ -268,11 +283,23 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-function FuncBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function FuncBtn({
+  onClick,
+  children,
+  disabled,
+  title,
+}: {
+  onClick: () => void
+  children: React.ReactNode
+  disabled?: boolean
+  title?: string
+}) {
   return (
     <button
       onClick={onClick}
-      className="tap rounded-btn bg-panel-2 px-5 py-3 font-semibold hover:bg-panel-3"
+      disabled={disabled}
+      title={title}
+      className="tap rounded-btn bg-panel-2 px-5 py-3 font-semibold hover:bg-panel-3 disabled:opacity-40"
     >
       {children}
     </button>

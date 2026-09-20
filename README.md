@@ -61,7 +61,29 @@ data layer for Supabase when the backend is provisioned (design doc §2, §3.10)
   custom).
 - **Currency: South African Rand (ZAR / R), 15% VAT-inclusive.**
 
-Navigation: left sidebar → **Calendar** · **Floor** (POS room board) · **Bookings** · **Reports**.
+Navigation: left sidebar → **Calendar** · **Floor** (POS room board) · **Bookings** · **Reports** · **Staff**.
+
+## Auth & roles
+
+The hosted build is gated by **Supabase Auth** (staff sign-in; sessions persist). RLS
+restricts every table to authenticated users — the public key gets `401`. Local/offline
+builds carry no backend config and run without login, with full access.
+
+Roles live in `public.profiles.role` (**staff → manager → admin**), constrained in the
+database; the **first account ever created becomes admin**, later sign-ups start as
+staff. Only admins can change roles (from the **Staff** screen), nobody can change
+their own, and self role-escalation is blocked at the RLS layer.
+
+| Capability | staff | manager | admin |
+|---|---|---|---|
+| Orders, settle, bookings, check-in/out | ✓ | ✓ | ✓ |
+| Discounts, comps, void sent items, cancel bookings | | ✓ | ✓ |
+| Reports, reset demo data | | ✓ | ✓ |
+| Staff management (assign roles) | | | ✓ |
+
+UI gating lives in `src/lib/permissions.ts` (`can(role, permission)`); the role is
+served through `AuthGate` → `useAuth()`. Note: action-level rules are enforced in the
+UI — hard server-side enforcement per action (e.g. via RPCs) is future hardening.
 
 ## Tech stack
 
@@ -90,7 +112,10 @@ node build/make-icon.mjs
 Self-contained offline bundle (single inlined `index.html`, hash routing) into `dist-offline/`:
 
 ```bash
-VITE_HASH=1 VITE_SINGLEFILE=1 npx vite build --base=./ --outDir dist-offline
+# blank the Supabase vars so a local .env.local doesn't leak the backend
+# into the offline bundle (offline builds are local-only, no login)
+VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= VITE_HASH=1 VITE_SINGLEFILE=1 \
+  npx vite build --base=./ --outDir dist-offline
 ```
 
 Windows desktop installer (Electron) — bundles the offline UI (the app icon
