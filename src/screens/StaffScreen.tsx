@@ -10,6 +10,7 @@ interface ProfileRow {
   full_name: string | null
   role: Role
   created_at: string
+  deactivated: boolean
 }
 
 const ROLES: Role[] = ['staff', 'manager', 'admin']
@@ -26,7 +27,7 @@ export function StaffScreen() {
     setLoading(true)
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, email, full_name, role, created_at')
+      .select('id, email, full_name, role, created_at, deactivated')
       .order('created_at', { ascending: true })
     if (error) setError(error.message)
     else setRows((data ?? []) as ProfileRow[])
@@ -42,6 +43,28 @@ export function StaffScreen() {
     setSavingId(id)
     setError(null)
     const { error } = await supabase.from('profiles').update({ role }).eq('id', id)
+    if (error) setError(error.message)
+    await load()
+    setSavingId(null)
+  }
+
+  const setActive = async (id: string, active: boolean) => {
+    if (!supabase) return
+    if (
+      !active &&
+      !confirm(
+        'Deactivate this staff member? They cannot sign in again until reactivated, and ' +
+          'any open session ends within the hour. Their history (payments, approvals) ' +
+          'keeps their name.',
+      )
+    )
+      return
+    setSavingId(id)
+    setError(null)
+    const { error } = await supabase.rpc('set_staff_active', {
+      p_user_id: id,
+      p_active: active,
+    })
     if (error) setError(error.message)
     await load()
     setSavingId(null)
@@ -80,13 +103,14 @@ export function StaffScreen() {
                 <th className="px-3 py-2 font-semibold">Email</th>
                 <th className="px-3 py-2 font-semibold">Joined</th>
                 <th className="px-3 py-2 font-semibold">Role</th>
+                <th className="px-3 py-2 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((p) => {
                 const isMe = p.email != null && p.email === myEmail
                 return (
-                  <tr key={p.id} className="border-t border-line/60">
+                  <tr key={p.id} className={`border-t border-line/60 ${p.deactivated ? 'opacity-60' : ''}`}>
                     <td className="px-3 py-3 font-medium">
                       {p.full_name ?? '—'}
                       {isMe && <span className="ml-2 rounded bg-primary/20 px-1.5 py-0.5 text-xs text-primary-2">you</span>}
@@ -96,7 +120,7 @@ export function StaffScreen() {
                     <td className="px-3 py-3">
                       <select
                         value={p.role}
-                        disabled={isMe || savingId === p.id}
+                        disabled={isMe || p.deactivated || savingId === p.id}
                         title={isMe ? "You can't change your own role" : undefined}
                         onChange={(e) => void setRole(p.id, e.target.value as Role)}
                         className="rounded-btn border border-line bg-panel-2 px-3 py-2 capitalize outline-none focus:border-primary disabled:opacity-50"
@@ -106,12 +130,32 @@ export function StaffScreen() {
                         ))}
                       </select>
                     </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                            p.deactivated ? 'bg-danger/20 text-danger' : 'bg-success/20 text-success'
+                          }`}
+                        >
+                          {p.deactivated ? 'Deactivated' : 'Active'}
+                        </span>
+                        {!isMe && (
+                          <button
+                            disabled={savingId === p.id}
+                            onClick={() => void setActive(p.id, p.deactivated)}
+                            className="tap rounded-btn bg-panel-2 px-3 py-1.5 text-xs font-semibold hover:bg-panel-3 disabled:opacity-50"
+                          >
+                            {p.deactivated ? 'Reactivate' : 'Deactivate'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-10 text-center text-muted">
+                  <td colSpan={5} className="py-10 text-center text-muted">
                     No staff accounts yet — the first sign-up becomes admin.
                   </td>
                 </tr>
@@ -124,7 +168,9 @@ export function StaffScreen() {
       <footer className="border-t border-line px-4 py-3 text-xs text-muted">
         New accounts are created from the sign-in screen (or Supabase dashboard → Authentication)
         and start as <span className="font-semibold">staff</span>. Only admins can change roles;
-        nobody can change their own.
+        nobody can change their own. <span className="font-semibold">Deactivate</span> instead of
+        deleting: it blocks sign-in immediately but keeps the person&apos;s name on their payments,
+        ledger lines and PIN approvals.
       </footer>
     </div>
   )

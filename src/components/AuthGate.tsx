@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, supabaseEnabled } from '../lib/supabase'
 import { initSync } from '../lib/sync'
+import { signOut } from '../lib/auth'
 import { AuthContext } from '../lib/authContext'
 import { can, type Role } from '../lib/permissions'
 import { LoginScreen } from '../screens/LoginScreen'
@@ -23,9 +24,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const loadRole = async (userId: string): Promise<Role> => {
       const { data } = await supabase!
         .from('profiles')
-        .select('role')
+        .select('role, deactivated')
         .eq('id', userId)
         .maybeSingle()
+      if (data?.deactivated) {
+        // Account was deactivated: end the session instead of running the till.
+        void signOut()
+        return 'staff'
+      }
       const r = (data?.role as Role | undefined) ?? 'staff'
       if (active) setRole(r)
       return r
