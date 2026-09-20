@@ -6,7 +6,14 @@ purpose-built for hotels: **rooms are selectable entities that carry a folio**, 
 outlet charges (restaurant, bar, room service, minibar) **post to the room's folio**
 and settle at check-out.
 
-**Live demo:** https://hotelpos-demo.pages.dev (Cloudflare Pages · fresh seeded data per visitor)
+**Live demo:** https://hotelpos-demo.pages.dev (Cloudflare Pages · shared Supabase backend, staff login required)
+
+**Downloads (v1.3.0):**
+[Windows installer](https://github.com/samgarib-debug/hotelpos/releases/download/v1.3.0/HotelPOS.Setup.1.3.0.exe) ·
+[Offline bundle (zip)](https://github.com/samgarib-debug/hotelpos/releases/download/v1.3.0/HotelPOS-offline.zip) ·
+[all releases](https://github.com/samgarib-debug/hotelpos/releases)
+— both run **pure-local** (no backend, seeded demo data). The installer is unsigned:
+Windows SmartScreen will warn — *More info → Run anyway*.
 
 > Full architecture, data model, and phased roadmap: [`docs/DESIGN.md`](docs/DESIGN.md).
 
