@@ -1,6 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { CalendarDays, LayoutGrid, ClipboardList, BarChart3 } from 'lucide-react'
+import { CalendarDays, LayoutGrid, ClipboardList, BarChart3, LogOut } from 'lucide-react'
 import { usePos } from '../store/pos'
+import { useAuthUser, signOut } from '../lib/auth'
+import { supabaseEnabled } from '../lib/supabase'
 
 const NAV = [
   { to: '/', label: 'Calendar', icon: CalendarDays, end: true },
@@ -11,6 +13,7 @@ const NAV = [
 
 export function Layout() {
   const config = usePos((s) => s.config)
+  const user = useAuthUser()
   return (
     <div className="flex h-full w-full">
       <nav className="flex w-[84px] shrink-0 flex-col items-center gap-1 border-r border-line bg-surface py-3">
@@ -32,8 +35,28 @@ export function Layout() {
             {label}
           </NavLink>
         ))}
-        <div className="mt-auto px-1 text-center text-[10px] leading-tight text-muted">
-          {config.businessDate}
+        <div className="mt-auto flex flex-col items-center gap-2 px-1">
+          {supabaseEnabled && user && (
+            <>
+              <div
+                className="w-full truncate text-center text-[10px] leading-tight text-muted"
+                title={user.email}
+              >
+                {user.email}
+                <span className="block capitalize">{user.role}</span>
+              </div>
+              <button
+                onClick={() => void signOut()}
+                title="Sign out"
+                className="tap flex h-9 w-9 items-center justify-center rounded-btn bg-panel-2 text-muted hover:bg-panel-3 hover:text-fg"
+              >
+                <LogOut size={16} />
+              </button>
+            </>
+          )}
+          <div className="text-center text-[10px] leading-tight text-muted">
+            {config.businessDate}
+          </div>
         </div>
       </nav>
       <main className="min-w-0 flex-1">
