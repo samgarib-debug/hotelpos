@@ -129,17 +129,17 @@ function nowISO() {
 }
 
 function initialDomain() {
-  const { rooms, folios, folioLines, clients, bookings } = buildSeed()
+  const { rooms, folios, folioLines, clients, bookings, tickets, payments } = buildSeed()
   return {
     config: { ...seedConfig, businessDate: todayISO() },
     workPeriodOpen: true,
     rooms,
     categories: seedCategories,
     products: seedProducts,
-    tickets: {} as Record<string, Ticket>,
+    tickets,
     folios,
     folioLines,
-    payments: [] as Payment[],
+    payments,
     clients,
     bookings,
     seq: 1000,
@@ -705,7 +705,7 @@ export const usePos = create<PosState>()(
         }),
     }),
     {
-      name: 'hotelpos-v3',
+      name: 'hotelpos-v4',
       storage: createJSONStorage(() => localStorage),
       version: 1,
       partialize: (s) => ({

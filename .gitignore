@@ -42,3 +42,5 @@ build/icon-512.png
 # large binaries (installers are built locally, not versioned)
 *.exe
 *.msi
+
+seed-dump-*.sql
