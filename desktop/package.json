@@ -13,7 +13,7 @@
     "appId": "com.samsquared.hotelpos",
     "productName": "HotelPOS",
     "directories": {
-      "output": "C:/Users/samga/AppData/Local/Temp/hotelpos-build"
+      "output": "release"
     },
     "files": [
       "main.cjs",

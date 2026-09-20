@@ -93,17 +93,23 @@ Self-contained offline bundle (single inlined `index.html`, hash routing) into `
 VITE_HASH=1 VITE_SINGLEFILE=1 npx vite build --base=./ --outDir dist-offline
 ```
 
-Windows desktop installer (Electron) — bundles the offline UI:
+Windows desktop installer (Electron) — bundles the offline UI (the app icon
+`desktop/build/icon.ico` is versioned in the repo):
 
 ```bash
-# from repo root: stage the UI + icon into desktop/
-cp -r dist-offline/* desktop/ui/ && cp build/icon.ico desktop/build/
+# stage the built UI into the desktop app, then build the installer
+cp -r dist-offline/* desktop/ui/
 cd desktop && npm install && npm run dist   # -> desktop/release/HotelPOS Setup <v>.exe
 ```
 
 > On a virtualized filesystem (e.g. VirtioFS) electron-builder's extract step can throw
-> `EPERM` on a directory rename — point `build.directories.output` (in `desktop/package.json`)
-> at a path on a local NTFS disk.
+> `EPERM` on a directory rename — build to a local NTFS path instead:
+> `npm run dist -- --config.directories.output=C:\hotelpos-build`
+
+**Automated:** pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which builds
+the Windows installer on a runner and attaches it (plus the offline zip) to a GitHub Release.
+Every push to `main` also auto-deploys the web app to Cloudflare Pages
+(`.github/workflows/deploy.yml`).
 
 ## Project layout
 

@@ -1,0 +1,75 @@
+name: Release (Windows installer)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.2.0), without the leading v'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Resolve version
+        id: ver
+        run: |
+          $v = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '${{ github.event.inputs.version }}' }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Building version $v"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build offline bundle
+        env:
+          VITE_HASH: '1'
+          VITE_SINGLEFILE: '1'
+        run: npx vite build --base=./ --outDir dist-offline
+
+      - name: Stage desktop UI
+        run: |
+          New-Item -ItemType Directory -Force desktop/ui | Out-Null
+          Copy-Item dist-offline/* desktop/ui/ -Recurse -Force
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Set desktop version
+        working-directory: desktop
+        run: npm version ${{ steps.ver.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Build Windows installer
+        working-directory: desktop
+        run: npm run dist
+
+      - name: Zip offline bundle
+        run: Compress-Archive -Path dist-offline/* -DestinationPath "HotelPOS-offline.zip" -Force
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+          name: HotelPOS ${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            desktop/release/*.exe
+            HotelPOS-offline.zip
