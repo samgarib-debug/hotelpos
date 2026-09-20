@@ -21,7 +21,7 @@ import { computeTotals, round2 } from '../lib/money'
 import { overlaps, ymd } from '../lib/date'
 import { supabaseEnabled } from '../lib/supabase'
 import { settlementRpc } from '../lib/rpc'
-import { reportSyncError, syncActive } from '../lib/sync'
+import { applyServerConfig, reportSyncError, syncActive } from '../lib/sync'
 
 /** Server-priced settlement path: only when the backend is configured AND
  *  sync actually started. */
@@ -139,7 +139,30 @@ interface PosState {
     bookingId: string,
     folioId: string,
   ) => Promise<{ ok: true } | { error: string }>
+  /** End of Day: server snapshots the trading period into day_closures and
+   *  rolls the business date. Returns the closure row (the Z-report). */
+  closeDay: () => Promise<{ ok: true; closure: DayClosure } | { error: string }>
   reseed: () => void
+}
+
+/** Snake_case row from run_end_of_day / the day_closures table. */
+export interface DayClosure {
+  business_date: string
+  period_start: string
+  period_end: string
+  cash_total: number
+  cash_count: number
+  card_total: number
+  card_count: number
+  room_charge_total: number
+  room_charge_count: number
+  comp_total: number
+  comp_count: number
+  tickets_settled: number
+  approvals_count: number
+  open_folio_total: number
+  open_folio_count: number
+  closed_at: string
 }
 
 /** Folio balance = sum of non-reversed signed lines. */
@@ -803,6 +826,7 @@ export const usePos = create<PosState>()(
       },
 
       applyPrepaidCredit: async (bookingId, folioId) => {
+        if (degraded()) return { error: DEGRADED_MSG }
         if (!online()) return { error: 'Backend not connected' }
         const res = await settlementRpc('post_prepaid_credit', {
           p_booking_id: bookingId,
@@ -810,6 +834,19 @@ export const usePos = create<PosState>()(
         })
         if (res.error) return { error: res.error }
         return { ok: true as const }
+      },
+
+      closeDay: async () => {
+        if (degraded()) return { error: DEGRADED_MSG }
+        if (!supabaseEnabled) return { error: 'End of Day needs the online backend.' }
+        // Name the date we're closing: a double-click race or a retry after a
+        // lost response errors cleanly instead of closing the next day.
+        const res = await settlementRpc('run_end_of_day', {
+          p_business_date: get().config.businessDate,
+        })
+        if (res.error) return { error: res.error }
+        applyServerConfig(res.data?.config)
+        return { ok: true as const, closure: res.data?.day_closure as DayClosure }
       },
 
       reseed: () =>

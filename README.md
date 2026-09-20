@@ -126,13 +126,28 @@ manager-only, and every payment and ledger line records `created_by`.
 Offline/desktop builds keep the pure-local computation (no backend, no
 triggers).
 
+**End of Day** (`supabase/migrations/0008_end_of_day.sql`): Floor → ⚙ →
+*Close day* (manager/admin, online builds). `run_end_of_day(business_date)`
+refuses while open tickets carry live lines, snapshots the trading period
+into an immutable `day_closures` row (the **Z-report**: cash/card/room-charge/
+comp with counts, tickets settled, PIN approvals, open-folio exposure), then
+rolls the business date. Periods are boundary-based and race-free: every money
+RPC share-locks the config row and stamps wall-clock time, the close takes it
+exclusively and cuts off under the lock, so a payment can never fall between
+two Z-reports; naming the date closes the double-click/retry race, and
+`business_date`/`seq` are server-owned against stale-till pushes. Reports
+gains a **Day Closures** tab (manager-read-only history; note staff can
+numerically reconstruct totals from the payments they can already read — the
+closure is a locked snapshot, not a secret).
+
 Known residuals: front-desk **attestations** — the check-in rate and a
 booking's total/prepayment are typed in by staff at creation (the DB locks
 them afterwards and records who wrote what, but no POS can verify cash
 physically changed hands); a PIN approval authorizes an action *type* for
-2 minutes, not one specific ticket. Also disable public sign-ups in the
-Supabase dashboard once your staff accounts exist — any successful sign-up
-gets staff-level data access.
+2 minutes, not one specific ticket; manager *direct* payment inserts
+(reseed/corrections) bypass the EOD period locking. Also disable public
+sign-ups in the Supabase dashboard once your staff accounts exist — any
+successful sign-up gets staff-level data access.
 
 **Manager PIN override at the till:** staff tapping a locked action (discount, comp,
 void-after-KOT, cancel booking) get a PIN pad; a manager's PIN approves that single

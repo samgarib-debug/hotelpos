@@ -11,6 +11,7 @@ import { Modal } from '../components/Modal'
 import { CheckInDialog } from '../components/CheckInDialog'
 import { FolioDialog } from '../components/FolioDialog'
 import { SetPinDialog } from '../components/SetPinDialog'
+import { CloseDayDialog } from '../components/CloseDayDialog'
 import { supabaseEnabled } from '../lib/supabase'
 
 const LEGEND: { label: string; colorVar: string }[] = [
@@ -39,6 +40,7 @@ export function RoomsBoard() {
   const [folioFor, setFolioFor] = useState<Room | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showSetPin, setShowSetPin] = useState(false)
+  const [showCloseDay, setShowCloseDay] = useState(false)
 
   const floors = useMemo(
     () => Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b),
@@ -206,6 +208,20 @@ export function RoomsBoard() {
           <div className="text-sm text-muted">
             Single property · {supabaseEnabled ? 'online backend' : 'local/offline mode'}
           </div>
+          {supabaseEnabled && can(role, 'close_day') && (
+            <button
+              className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
+              onClick={() => {
+                setShowSettings(false)
+                setShowCloseDay(true)
+              }}
+            >
+              Close day (End of Day)
+              <div className="text-sm font-normal text-muted">
+                Lock today&apos;s Z-report and roll to the next business date
+              </div>
+            </button>
+          )}
           {supabaseEnabled && can(role, 'set_pin') && (
             <button
               className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
@@ -241,6 +257,7 @@ export function RoomsBoard() {
       </Modal>
 
       <SetPinDialog open={showSetPin} onClose={() => setShowSetPin(false)} />
+      <CloseDayDialog open={showCloseDay} onClose={() => setShowCloseDay(false)} />
     </div>
   )
 }

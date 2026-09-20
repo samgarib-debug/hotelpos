@@ -166,6 +166,13 @@ export function syncFlush(): Promise<void> {
   return pushChain
 }
 
+/** Merge a server-returned config row into the local store without pushing
+ *  it back (used by run_end_of_day, which rolls the business date). */
+export function applyServerConfig(row: unknown) {
+  if (!row || typeof row !== 'object' || (row as { id?: string }).id !== 'default') return
+  withSuppress(() => usePos.setState(configPatch(row) as any))
+}
+
 /** Merge rows returned by a settlement RPC (snake_case, keyed by table name)
  *  into the local store without pushing them back — the server already has
  *  them, and the matching realtime events will no-op against this merge. */

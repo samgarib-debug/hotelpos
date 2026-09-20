@@ -8,6 +8,7 @@ export type Permission =
   | 'reports' // view the Reports section
   | 'reset_data' // reset demo data
   | 'set_pin' // set own manager approval PIN
+  | 'close_day' // run the End of Day close
   | 'manage_staff' // view staff & assign roles
 
 const MANAGER: Permission[] = [
@@ -18,6 +19,7 @@ const MANAGER: Permission[] = [
   'reports',
   'reset_data',
   'set_pin',
+  'close_day',
 ]
 
 const GRANTS: Record<Role, Permission[]> = {

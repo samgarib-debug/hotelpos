@@ -15,6 +15,7 @@ type Tab =
   | 'payments'
   | 'folios'
   | 'approvals'
+  | 'closures'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -25,6 +26,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'payments', label: 'Payments' },
   { id: 'folios', label: 'Folios' },
   { id: 'approvals', label: 'Approvals' },
+  { id: 'closures', label: 'Day Closures' },
 ]
 
 function rangeFor(preset: Preset, from: string, to: string): DateRange {
@@ -288,6 +290,7 @@ export function ReportsScreen() {
         )}
 
         {tab === 'approvals' && <ApprovalsReport range={range} />}
+        {tab === 'closures' && <ClosuresReport range={range} />}
       </div>
     </div>
   )
@@ -424,6 +427,121 @@ function ApprovalsReport({ range }: { range: DateRange }) {
                     >
                       {r.success ? 'Approved' : 'Failed'}
                     </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+/* ---- Day closures (End of Day Z-reports; live from the backend) ---- */
+
+interface ClosureRow {
+  business_date: string
+  period_start: string
+  period_end: string
+  cash_total: number
+  cash_count: number
+  card_total: number
+  card_count: number
+  room_charge_total: number
+  room_charge_count: number
+  comp_total: number
+  comp_count: number
+  tickets_settled: number
+  approvals_count: number
+  open_folio_total: number
+  open_folio_count: number
+  closed_at: string
+}
+
+function ClosuresReport({ range }: { range: DateRange }) {
+  const config = usePos((s) => s.config)
+  const [rows, setRows] = useState<ClosureRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!supabase) return
+    let active = true
+    setLoading(true)
+    setError(null)
+    supabase
+      .from('day_closures')
+      .select('*')
+      .gte('business_date', range.from)
+      .lte('business_date', range.to)
+      .order('business_date', { ascending: false })
+      .then(({ data, error }) => {
+        if (!active) return
+        if (error) setError(error.message)
+        else setRows((data ?? []) as ClosureRow[])
+        setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [range.from, range.to])
+
+  if (!supabaseEnabled) {
+    return (
+      <div className="py-10 text-center text-muted">
+        Day closures live on the online backend — this build is running in local/offline mode.
+      </div>
+    )
+  }
+  if (loading) return <div className="py-10 text-center text-muted">Loading day closures…</div>
+
+  const money = (n: number) => formatMoney(n, config)
+  const sum = (f: (r: ClosureRow) => number) => rows.reduce((s, r) => s + Number(f(r)), 0)
+
+  return (
+    <div className="flex flex-col gap-5">
+      <KpiGrid>
+        <Kpi label="Days closed" value={String(rows.length)} />
+        <Kpi label="Cash collected" value={money(sum((r) => r.cash_total))} />
+        <Kpi label="Card collected" value={money(sum((r) => r.card_total))} />
+        <Kpi label="Room charges" value={money(sum((r) => r.room_charge_total))} />
+        <Kpi label="Comps" value={money(sum((r) => r.comp_total))} accent={sum((r) => r.comp_total) > 0} />
+      </KpiGrid>
+
+      {error && (
+        <div className="rounded-btn bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>
+      )}
+
+      <Card title="Z-reports (one locked snapshot per closed business date)">
+        {rows.length === 0 ? (
+          <div className="py-4 text-center text-muted">
+            No closed days in this range yet — run End of Day from Floor → ⚙.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-left text-muted">
+              <tr>
+                <th className="py-1 pr-3 font-semibold">Date</th>
+                <th className="py-1 pr-3 text-right font-semibold">Cash</th>
+                <th className="py-1 pr-3 text-right font-semibold">Card</th>
+                <th className="py-1 pr-3 text-right font-semibold">Room chg</th>
+                <th className="py-1 pr-3 text-right font-semibold">Comp</th>
+                <th className="py-1 pr-3 text-right font-semibold">Tickets</th>
+                <th className="py-1 text-right font-semibold">Open folios</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.business_date} className="border-t border-line/60">
+                  <td className="py-2 pr-3 font-medium whitespace-nowrap">{r.business_date}</td>
+                  <td className="py-2 pr-3 text-right">{money(Number(r.cash_total))}</td>
+                  <td className="py-2 pr-3 text-right">{money(Number(r.card_total))}</td>
+                  <td className="py-2 pr-3 text-right">{money(Number(r.room_charge_total))}</td>
+                  <td className="py-2 pr-3 text-right">{money(Number(r.comp_total))}</td>
+                  <td className="py-2 pr-3 text-right">{r.tickets_settled}</td>
+                  <td className="py-2 text-right">
+                    {r.open_folio_count} · {money(Number(r.open_folio_total))}
                   </td>
                 </tr>
               ))}
