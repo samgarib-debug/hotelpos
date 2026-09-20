@@ -27,7 +27,13 @@ export function LoginScreen() {
           password,
           options: { data: { full_name: name || email } },
         })
-        if (error) setError(error.message)
+        if (error)
+          // the DB-level signup block surfaces as a generic GoTrue error
+          setError(
+            error.message.includes('Database error saving new user')
+              ? 'Sign-ups are disabled — ask an administrator to create your account.'
+              : error.message,
+          )
         else if (!data.session) {
           setNotice('Account created — check your email to confirm, then sign in.')
           setMode('signin')
