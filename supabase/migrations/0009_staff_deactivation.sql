@@ -164,3 +164,8 @@ end $$;
 drop trigger if exists profiles_guard on public.profiles;
 create trigger profiles_guard before update on public.profiles
   for each row execute function public.guard_profiles();
+
+-- PostgREST caches the schema: without this, freshly created RPCs 404 from
+-- the API until the cache happens to reload. (Supabase usually auto-reloads
+-- on DDL, but not reliably — always end RPC-adding migrations with this.)
+notify pgrst, 'reload schema';
