@@ -77,17 +77,28 @@ The hosted build is gated by **Supabase Auth** (staff sign-in; sessions persist)
 restricts every table to authenticated users — the public key gets `401`. Local/offline
 builds carry no backend config and run without login, with full access.
 
+**Staff sign in with a username — no email addresses.** Accounts are created in-app
+by a manager or admin (Staff → *+ Add staff*): behind the scenes each account's auth
+identity is a synthetic `<username>@hotelpos.invalid` address (an RFC-reserved domain
+that can never receive mail), created auto-confirmed by the `create-staff` edge
+function running with the service role. There is no public sign-up and no reset
+email: users change their own password from Floor → ⚙, and forgotten passwords are
+reset from the Staff screen (admins may reset staff & managers, managers may reset
+staff — nobody resets an admin in-app). A database trigger also refuses GoTrue email
+changes, so a signed-in user can't swap a real address back in.
+
 Roles live in `public.profiles.role` (**staff → manager → admin**), constrained in the
-database; the **first account ever created becomes admin**, later sign-ups start as
-staff. Only admins can change roles (from the **Staff** screen), nobody can change
-their own, and self role-escalation is blocked at the RLS layer.
+database; new accounts always start as staff. Only admins can change roles (from the
+**Staff** screen), nobody can change their own, and self role-escalation is blocked
+at the RLS layer.
 
 | Capability | staff | manager | admin |
 |---|---|---|---|
 | Orders, settle, bookings, check-in/out | ✓ | ✓ | ✓ |
 | Discounts, comps, void sent items, cancel bookings | | ✓ | ✓ |
 | Reports, reset demo data | | ✓ | ✓ |
-| Staff management (assign roles) | | | ✓ |
+| Add staff accounts, reset staff passwords | | ✓ | ✓ |
+| Assign roles, deactivate accounts, reset manager passwords | | | ✓ |
 
 UI gating lives in `src/lib/permissions.ts` (`can(role, permission)`); the role is
 served through `AuthGate` → `useAuth()`.
@@ -131,7 +142,8 @@ triggers).
 refuses while open tickets carry live lines, snapshots the trading period
 into an immutable `day_closures` row (the **Z-report**: cash/card/room-charge/
 comp with counts, tickets settled, PIN approvals, open-folio exposure), then
-rolls the business date. Periods are boundary-based and race-free: every money
+rolls the business date. Usernames & in-app staff creation live in
+`supabase/migrations/0011_usernames.sql` + `supabase/functions/create-staff`. Periods are boundary-based and race-free: every money
 RPC share-locks the config row and stamps wall-clock time, the close takes it
 exclusively and cuts off under the lock, so a payment can never fall between
 two Z-reports; naming the date closes the double-click/retry race, and
@@ -145,9 +157,10 @@ booking's total/prepayment are typed in by staff at creation (the DB locks
 them afterwards and records who wrote what, but no POS can verify cash
 physically changed hands); a PIN approval authorizes an action *type* for
 2 minutes, not one specific ticket; manager *direct* payment inserts
-(reseed/corrections) bypass the EOD period locking. Also disable public
-sign-ups in the Supabase dashboard once your staff accounts exist — any
-successful sign-up gets staff-level data access.
+(reseed/corrections) bypass the EOD period locking. Public self-sign-up is
+blocked at the database (a trigger refuses unconfirmed auth inserts — keep
+email confirmation ON in the dashboard or that check is bypassed); accounts
+exist only when a manager/admin creates them in-app.
 
 **Manager PIN override at the till:** staff tapping a locked action (discount, comp,
 void-after-KOT, cancel booking) get a PIN pad; a manager's PIN approves that single

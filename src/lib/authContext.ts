@@ -2,7 +2,8 @@ import { createContext, useContext } from 'react'
 import type { Role } from './permissions'
 
 export interface AuthInfo {
-  email: string | null
+  userId: string | null
+  username: string | null
   role: Role
 }
 
@@ -11,6 +12,6 @@ export interface AuthInfo {
  *  staff experience without a backend). */
 const localRole = ((import.meta.env.VITE_DEFAULT_ROLE as Role) || 'admin') as Role
 
-export const AuthContext = createContext<AuthInfo>({ email: null, role: localRole })
+export const AuthContext = createContext<AuthInfo>({ userId: null, username: null, role: localRole })
 
 export const useAuth = () => useContext(AuthContext)

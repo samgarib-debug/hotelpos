@@ -16,6 +16,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   // Least privilege until the profile loads.
   const [role, setRole] = useState<Role>('staff')
+  const [username, setUsername] = useState<string | null>(null)
 
   useEffect(() => {
     if (!supabaseEnabled || !supabase) return
@@ -24,7 +25,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const loadRole = async (userId: string): Promise<Role> => {
       const { data } = await supabase!
         .from('profiles')
-        .select('role, deactivated')
+        .select('role, deactivated, username')
         .eq('id', userId)
         .maybeSingle()
       if (data?.deactivated) {
@@ -33,7 +34,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return 'staff'
       }
       const r = (data?.role as Role | undefined) ?? 'staff'
-      if (active) setRole(r)
+      if (active) {
+        setRole(r)
+        if (data?.username) setUsername(data.username as string)
+      }
       return r
     }
 
@@ -47,6 +51,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         void loadRole(s.user.id).then((r) => initSync({ canSeed: can(r, 'reset_data') }))
       } else {
         setRole('staff')
+        setUsername(null)
       }
     }
 
@@ -71,7 +76,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
   if (!session) return <LoginScreen />
   return (
-    <AuthContext.Provider value={{ email: session.user.email ?? null, role }}>
+    <AuthContext.Provider
+      value={{
+        userId: session.user.id,
+        // Until the profile loads, fall back to the login address's local part
+        // (identical to the username for accounts on the synthetic domain).
+        username: username ?? session.user.email?.split('@')[0] ?? null,
+        role,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

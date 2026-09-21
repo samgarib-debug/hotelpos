@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { supabase, supabaseEnabled } from '../lib/supabase'
 import { useAuth } from '../lib/authContext'
 import { fmtDate } from '../lib/date'
-import type { Role } from '../lib/permissions'
+import { can, type Role } from '../lib/permissions'
+import { AddStaffDialog } from '../components/AddStaffDialog'
+import { ResetPasswordDialog } from '../components/ResetPasswordDialog'
 
 interface ProfileRow {
   id: string
-  email: string | null
+  username: string
   full_name: string | null
   role: Role
   created_at: string
@@ -16,18 +18,21 @@ interface ProfileRow {
 const ROLES: Role[] = ['staff', 'manager', 'admin']
 
 export function StaffScreen() {
-  const { email: myEmail } = useAuth()
+  const { userId, role: myRole } = useAuth()
+  const isAdmin = can(myRole, 'manage_staff')
   const [rows, setRows] = useState<ProfileRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [resetTarget, setResetTarget] = useState<{ id: string; username: string } | null>(null)
 
   const load = async () => {
     if (!supabase) return
     setLoading(true)
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, email, full_name, role, created_at, deactivated')
+      .select('id, username, full_name, role, created_at, deactivated')
       .order('created_at', { ascending: true })
     if (error) setError(error.message)
     else setRows((data ?? []) as ProfileRow[])
@@ -70,6 +75,12 @@ export function StaffScreen() {
     setSavingId(null)
   }
 
+  /** Who may reset whose password (mirrors the create-staff edge function):
+   *  admins → staff/manager, managers → staff. Never admins, never yourself. */
+  const canResetPassword = (p: ProfileRow) =>
+    p.id !== userId &&
+    (isAdmin ? p.role !== 'admin' : p.role === 'staff')
+
   if (!supabaseEnabled) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-muted">
@@ -83,8 +94,16 @@ export function StaffScreen() {
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3">
         <h1 className="text-xl font-bold">Staff & Roles</h1>
-        <div className="text-sm text-muted">
-          staff → POS only · manager → discounts, voids, comps, reports · admin → + staff management
+        <div className="flex items-center gap-3">
+          <div className="hidden text-sm text-muted md:block">
+            staff → POS only · manager → + overrides, reports, add staff · admin → + roles &amp; deactivation
+          </div>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="tap rounded-btn bg-primary px-4 py-2 font-semibold text-white hover:bg-primary-2"
+          >
+            + Add staff
+          </button>
         </div>
       </header>
 
@@ -100,7 +119,7 @@ export function StaffScreen() {
             <thead className="text-left text-muted">
               <tr>
                 <th className="px-3 py-2 font-semibold">Name</th>
-                <th className="px-3 py-2 font-semibold">Email</th>
+                <th className="px-3 py-2 font-semibold">Username</th>
                 <th className="px-3 py-2 font-semibold">Joined</th>
                 <th className="px-3 py-2 font-semibold">Role</th>
                 <th className="px-3 py-2 font-semibold">Status</th>
@@ -108,27 +127,31 @@ export function StaffScreen() {
             </thead>
             <tbody>
               {rows.map((p) => {
-                const isMe = p.email != null && p.email === myEmail
+                const isMe = p.id === userId
                 return (
                   <tr key={p.id} className={`border-t border-line/60 ${p.deactivated ? 'opacity-60' : ''}`}>
                     <td className="px-3 py-3 font-medium">
                       {p.full_name ?? '—'}
                       {isMe && <span className="ml-2 rounded bg-primary/20 px-1.5 py-0.5 text-xs text-primary-2">you</span>}
                     </td>
-                    <td className="px-3 py-3 text-muted">{p.email ?? '—'}</td>
+                    <td className="px-3 py-3 text-muted">{p.username}</td>
                     <td className="px-3 py-3 text-muted">{fmtDate(p.created_at)}</td>
                     <td className="px-3 py-3">
-                      <select
-                        value={p.role}
-                        disabled={isMe || p.deactivated || savingId === p.id}
-                        title={isMe ? "You can't change your own role" : undefined}
-                        onChange={(e) => void setRole(p.id, e.target.value as Role)}
-                        className="rounded-btn border border-line bg-panel-2 px-3 py-2 capitalize outline-none focus:border-primary disabled:opacity-50"
-                      >
-                        {ROLES.map((r) => (
-                          <option key={r} value={r}>{r}</option>
-                        ))}
-                      </select>
+                      {isAdmin ? (
+                        <select
+                          value={p.role}
+                          disabled={isMe || p.deactivated || savingId === p.id}
+                          title={isMe ? "You can't change your own role" : undefined}
+                          onChange={(e) => void setRole(p.id, e.target.value as Role)}
+                          className="rounded-btn border border-line bg-panel-2 px-3 py-2 capitalize outline-none focus:border-primary disabled:opacity-50"
+                        >
+                          {ROLES.map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="capitalize">{p.role}</span>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2">
@@ -139,7 +162,16 @@ export function StaffScreen() {
                         >
                           {p.deactivated ? 'Deactivated' : 'Active'}
                         </span>
-                        {!isMe && (
+                        {canResetPassword(p) && (
+                          <button
+                            disabled={savingId === p.id}
+                            onClick={() => setResetTarget({ id: p.id, username: p.username })}
+                            className="tap rounded-btn bg-panel-2 px-3 py-1.5 text-xs font-semibold hover:bg-panel-3 disabled:opacity-50"
+                          >
+                            Reset password
+                          </button>
+                        )}
+                        {isAdmin && !isMe && (
                           <button
                             disabled={savingId === p.id}
                             onClick={() => void setActive(p.id, p.deactivated)}
@@ -156,7 +188,7 @@ export function StaffScreen() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="py-10 text-center text-muted">
-                    No staff accounts yet — the first sign-up becomes admin.
+                    No staff accounts yet.
                   </td>
                 </tr>
               )}
@@ -166,12 +198,17 @@ export function StaffScreen() {
       </div>
 
       <footer className="border-t border-line px-4 py-3 text-xs text-muted">
-        New accounts are created from the sign-in screen (or Supabase dashboard → Authentication)
-        and start as <span className="font-semibold">staff</span>. Only admins can change roles;
-        nobody can change their own. <span className="font-semibold">Deactivate</span> instead of
-        deleting: it blocks sign-in immediately but keeps the person&apos;s name on their payments,
-        ledger lines and PIN approvals.
+        Managers and admins create accounts here with <span className="font-semibold">+ Add staff</span> —
+        staff sign in with a username only (no email). New accounts start as{' '}
+        <span className="font-semibold">staff</span>; only admins change roles, and nobody
+        can change their own. <span className="font-semibold">Deactivate</span> instead of
+        deleting: it blocks sign-in immediately but keeps the person&apos;s name on their
+        payments, ledger lines and PIN approvals. Forgotten passwords are reset here too —
+        there are no reset emails.
       </footer>
+
+      <AddStaffDialog open={showAdd} onClose={() => setShowAdd(false)} onCreated={() => void load()} />
+      <ResetPasswordDialog target={resetTarget} onClose={() => setResetTarget(null)} />
     </div>
   )
 }

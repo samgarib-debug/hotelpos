@@ -52,7 +52,7 @@ export default function App() {
               <Route
                 path="/staff"
                 element={
-                  <Guarded perm="manage_staff">
+                  <Guarded perm="add_staff">
                     <StaffScreen />
                   </Guarded>
                 }

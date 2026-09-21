@@ -28,7 +28,7 @@ const NAV: NavItem[] = [
   { to: '/floor', label: 'Floor', icon: LayoutGrid, end: false },
   { to: '/bookings', label: 'Bookings', icon: ClipboardList, end: false },
   { to: '/reports', label: 'Reports', icon: BarChart3, end: false, perm: 'reports' },
-  { to: '/staff', label: 'Staff', icon: Users, end: false, perm: 'manage_staff' },
+  { to: '/staff', label: 'Staff', icon: Users, end: false, perm: 'add_staff' },
 ]
 
 /** Banner for failed backend writes (dispatched by src/lib/sync.ts) — a
@@ -64,7 +64,7 @@ function SyncErrorBanner() {
 
 export function Layout() {
   const config = usePos((s) => s.config)
-  const { email, role } = useAuth()
+  const { username, role } = useAuth()
   const items = NAV.filter((n) => !n.perm || can(role, n.perm))
 
   return (
@@ -89,13 +89,13 @@ export function Layout() {
           </NavLink>
         ))}
         <div className="mt-auto flex flex-col items-center gap-2 px-1">
-          {supabaseEnabled && email && (
+          {supabaseEnabled && username && (
             <>
               <div
                 className="w-full truncate text-center text-[10px] leading-tight text-muted"
-                title={email}
+                title={username}
               >
-                {email}
+                {username}
                 <span className="block capitalize">{role}</span>
               </div>
               <button

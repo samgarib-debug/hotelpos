@@ -339,15 +339,17 @@ function ApprovalsReport({ range }: { range: DateRange }) {
         .lt('created_at', upper)
         .order('created_at', { ascending: false })
         .limit(APPROVALS_LIMIT),
-      supabase.from('profiles').select('id, full_name, email'),
+      supabase.from('profiles').select('id, full_name, username'),
     ]).then(([a, p]) => {
       if (!active) return
-      if (a.error) setError(a.error.message)
+      // Surface either query's failure — a silent profiles error would render
+      // every actor as "Unknown" and read as lost attribution.
+      if (a.error || p.error) setError((a.error ?? p.error)!.message)
       else setRows((a.data ?? []) as ApprovalRow[])
       setPeople(
         new Map(
-          ((p.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map(
-            (x) => [x.id, x.full_name || x.email || 'Unknown'],
+          ((p.data ?? []) as { id: string; full_name: string | null; username: string | null }[]).map(
+            (x) => [x.id, x.full_name || x.username || 'Unknown'],
           ),
         ),
       )

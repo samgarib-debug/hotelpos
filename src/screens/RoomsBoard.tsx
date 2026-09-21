@@ -12,6 +12,7 @@ import { CheckInDialog } from '../components/CheckInDialog'
 import { FolioDialog } from '../components/FolioDialog'
 import { SetPinDialog } from '../components/SetPinDialog'
 import { CloseDayDialog } from '../components/CloseDayDialog'
+import { ChangePasswordDialog } from '../components/ChangePasswordDialog'
 import { supabaseEnabled } from '../lib/supabase'
 
 const LEGEND: { label: string; colorVar: string }[] = [
@@ -41,6 +42,7 @@ export function RoomsBoard() {
   const [showSettings, setShowSettings] = useState(false)
   const [showSetPin, setShowSetPin] = useState(false)
   const [showCloseDay, setShowCloseDay] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   const floors = useMemo(
     () => Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b),
@@ -236,6 +238,20 @@ export function RoomsBoard() {
               </div>
             </button>
           )}
+          {supabaseEnabled && (
+            <button
+              className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
+              onClick={() => {
+                setShowSettings(false)
+                setShowChangePassword(true)
+              }}
+            >
+              Change my password
+              <div className="text-sm font-normal text-muted">
+                Accounts have no email — forgotten passwords are reset by a manager
+              </div>
+            </button>
+          )}
           {can(role, 'reset_data') ? (
             <button
               className="tap rounded-btn bg-panel-2 px-4 py-3 text-left font-semibold hover:bg-panel-3"
@@ -258,6 +274,7 @@ export function RoomsBoard() {
 
       <SetPinDialog open={showSetPin} onClose={() => setShowSetPin(false)} />
       <CloseDayDialog open={showCloseDay} onClose={() => setShowCloseDay(false)} />
+      <ChangePasswordDialog open={showChangePassword} onClose={() => setShowChangePassword(false)} />
     </div>
   )
 }

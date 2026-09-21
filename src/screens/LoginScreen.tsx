@@ -1,44 +1,32 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { STAFF_DOMAIN } from '../lib/staffAuth'
 
 export function LoginScreen() {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supabase || busy) return
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
-      if (mode === 'signin') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) setError(error.message)
-        // success: AuthGate's onAuthStateChange takes over
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: name || email } },
-        })
-        if (error)
-          // the DB-level signup block surfaces as a generic GoTrue error
-          setError(
-            error.message.includes('Database error saving new user')
-              ? 'Sign-ups are disabled — ask an administrator to create your account.'
-              : error.message,
-          )
-        else if (!data.session) {
-          setNotice('Account created — check your email to confirm, then sign in.')
-          setMode('signin')
-        }
-      }
+      // Staff sign in with a username; the auth identity behind it is the
+      // synthetic `<username>@hotelpos.invalid` address. Typing a full
+      // address still works (legacy escape hatch).
+      const id = username.trim().toLowerCase()
+      const email = id.includes('@') ? id : `${id}@${STAFF_DOMAIN}`
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error)
+        setError(
+          error.message.includes('Invalid login credentials')
+            ? 'Wrong username or password'
+            : error.message,
+        )
+      // success: AuthGate's onAuthStateChange takes over
     } finally {
       setBusy(false)
     }
@@ -57,58 +45,29 @@ export function LoginScreen() {
           </div>
         </div>
 
-        <div className="mb-4 flex overflow-hidden rounded-btn border border-line">
-          {(['signin', 'signup'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => {
-                setMode(m)
-                setError(null)
-                setNotice(null)
-              }}
-              className={`tap flex-1 py-2 text-sm font-semibold ${
-                mode === m ? 'bg-primary text-white' : 'bg-panel-2 text-muted hover:bg-panel-3'
-              }`}
-            >
-              {m === 'signin' ? 'Sign in' : 'Sign up'}
-            </button>
-          ))}
-        </div>
-
         <form onSubmit={submit} className="flex flex-col gap-3">
-          {mode === 'signup' && (
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Full name"
-              className="rounded-btn border border-line bg-panel-2 px-3 py-3 outline-none focus:border-primary"
-            />
-          )}
           <input
-            type="email"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            autoComplete="email"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Username"
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
             className="rounded-btn border border-line bg-panel-2 px-3 py-3 outline-none focus:border-primary"
           />
           <input
             type="password"
             required
-            minLength={6}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
-            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+            autoComplete="current-password"
             className="rounded-btn border border-line bg-panel-2 px-3 py-3 outline-none focus:border-primary"
           />
 
           {error && (
             <div className="rounded-btn bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>
-          )}
-          {notice && (
-            <div className="rounded-btn bg-success/15 px-3 py-2 text-sm text-success">{notice}</div>
           )}
 
           <button
@@ -116,12 +75,13 @@ export function LoginScreen() {
             disabled={busy}
             className="tap rounded-btn bg-primary px-4 py-3 font-semibold text-white hover:bg-primary-2 disabled:opacity-50"
           >
-            {busy ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+            {busy ? 'Working…' : 'Sign in'}
           </button>
         </form>
 
         <p className="mt-4 text-center text-xs text-muted">
-          Staff accounts only — ask a manager to be added.
+          Accounts are created by a manager on the Staff screen. Forgot your
+          password? Ask a manager to reset it.
         </p>
       </div>
     </div>
