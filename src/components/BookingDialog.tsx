@@ -5,7 +5,9 @@ import { DEFAULT_RATE } from '../data/seed'
 import { formatMoney, round2 } from '../lib/money'
 import { fmtDate, nightsBetween, ymd } from '../lib/date'
 import { clientList, searchClients } from '../lib/clients'
+import { buildBookingReceipt } from '../lib/bookingReceipt'
 import { Modal } from './Modal'
+import { ReceiptView } from './ReceiptView'
 
 interface BookingDialogProps {
   open: boolean
@@ -63,7 +65,9 @@ export function BookingDialog({
   const [idNumber, setIdNumber] = useState('')
   const [notes, setNotes] = useState('')
   const [clientId, setClientId] = useState<string | undefined>(undefined)
+  const [guestSearch, setGuestSearch] = useState('')
   const [showSuggest, setShowSuggest] = useState(false)
+  const [confirmed, setConfirmed] = useState<Booking | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // (Re)initialise when opened
@@ -87,7 +91,9 @@ export function BookingDialog({
     setIdNumber('')
     setNotes('')
     setClientId(undefined)
+    setGuestSearch('')
     setShowSuggest(false)
+    setConfirmed(null)
     setPaymentKind('CARD')
     setError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,8 +117,8 @@ export function BookingDialog({
   // Returning-guest search over the client database.
   const clientEntries = useMemo(() => clientList(clients, bookings), [clients, bookings])
   const suggestions = useMemo(
-    () => (clientId ? [] : searchClients(clientEntries, name)),
-    [clientEntries, name, clientId],
+    () => searchClients(clientEntries, guestSearch),
+    [clientEntries, guestSearch],
   )
 
   const pickClient = (c: {
@@ -129,6 +135,7 @@ export function BookingDialog({
     setEmail(c.email ?? '')
     setIdNumber(c.idNumber ?? '')
     setNotes(c.notes ?? '')
+    setGuestSearch('')
     setShowSuggest(false)
   }
 
@@ -141,6 +148,7 @@ export function BookingDialog({
     setEmail('')
     setIdNumber('')
     setNotes('')
+    setGuestSearch('')
     setShowSuggest(false)
   }
 
@@ -166,8 +174,36 @@ export function BookingDialog({
       setError(res.error)
       return
     }
-    onCreated?.(res)
+    // Show the printable confirmation ticket before handing off.
+    setConfirmed(res)
+  }
+
+  const done = () => {
+    const b = confirmed
+    setConfirmed(null)
+    if (b) onCreated?.(b)
     onClose()
+  }
+
+  if (confirmed) {
+    const confClient = clients.find((c) => c.id === confirmed.clientId)
+    const confRoom = rooms.find((r) => r.id === confirmed.roomId)
+    return (
+      <Modal open={open} onClose={done} title="Booking confirmed" width="min(460px, 94vw)">
+        <ReceiptView data={buildBookingReceipt(confirmed, confClient, confRoom, config)} />
+        <div className="flex justify-end gap-3 border-t border-line p-4">
+          <button className="tap rounded-btn px-5 py-3 text-muted hover:bg-panel-2" onClick={done}>
+            Done
+          </button>
+          <button
+            className="tap rounded-btn bg-primary px-6 py-3 font-semibold text-white hover:bg-primary-2"
+            onClick={() => window.print()}
+          >
+            Print confirmation
+          </button>
+        </div>
+      </Modal>
+    )
   }
 
   return (
@@ -282,44 +318,64 @@ export function BookingDialog({
             </span>
           )}
         </div>
-        <Field label="Full name * — type to search returning guests">
+
+        {/* Returning-guest search bar */}
+        <div className="sm:col-span-2 rounded-btn border border-line bg-panel-2 p-3">
+          <div className="mb-1 text-sm font-semibold text-muted">🔍 Find a returning guest</div>
           <div className="relative">
             <input
-              value={name}
+              value={guestSearch}
               onChange={(e) => {
-                setName(e.target.value)
-                setClientId(undefined)
+                setGuestSearch(e.target.value)
                 setShowSuggest(true)
               }}
               onFocus={() => setShowSuggest(true)}
               onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
-              placeholder="e.g. J. Smith"
+              placeholder="Search the client database by name, phone, email or ID…"
               autoComplete="off"
               className={inputCls}
             />
-            {showSuggest && suggestions.length > 0 && (
+            {showSuggest && guestSearch.trim() !== '' && (
               <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-btn border border-line bg-panel shadow-lg">
-                {suggestions.map((e) => (
-                  <button
-                    key={e.client.id}
-                    // onMouseDown fires before the input's onBlur, so the pick lands
-                    onMouseDown={(ev) => {
-                      ev.preventDefault()
-                      pickClient(e.client)
-                    }}
-                    className="tap flex w-full flex-col items-start gap-0.5 border-b border-line/60 px-3 py-2 text-left last:border-0 hover:bg-panel-2"
-                  >
-                    <span className="font-semibold">{e.client.name}</span>
-                    <span className="text-xs text-muted">
-                      {[e.client.phone, e.client.email].filter(Boolean).join(' · ') || 'no contact on file'}
-                      {e.bookingCount > 0 && ` · ${e.bookingCount} past stay${e.bookingCount > 1 ? 's' : ''}`}
-                      {e.lastStay && ` · last ${fmtDate(e.lastStay)}`}
-                    </span>
-                  </button>
-                ))}
+                {suggestions.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted">
+                    No returning guest found — enter the details below for a new guest.
+                  </div>
+                ) : (
+                  suggestions.map((e) => (
+                    <button
+                      key={e.client.id}
+                      // onMouseDown fires before the input's onBlur, so the pick lands
+                      onMouseDown={(ev) => {
+                        ev.preventDefault()
+                        pickClient(e.client)
+                      }}
+                      className="tap flex w-full flex-col items-start gap-0.5 border-b border-line/60 px-3 py-2 text-left last:border-0 hover:bg-panel-2"
+                    >
+                      <span className="font-semibold">{e.client.name}</span>
+                      <span className="text-xs text-muted">
+                        {[e.client.phone, e.client.email].filter(Boolean).join(' · ') || 'no contact on file'}
+                        {e.bookingCount > 0 && ` · ${e.bookingCount} past stay${e.bookingCount > 1 ? 's' : ''}`}
+                        {e.lastStay && ` · last ${fmtDate(e.lastStay)}`}
+                      </span>
+                    </button>
+                  ))
+                )}
               </div>
             )}
           </div>
+        </div>
+
+        <Field label="Full name *">
+          <input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value)
+              setClientId(undefined)
+            }}
+            placeholder="e.g. J. Smith"
+            className={inputCls}
+          />
         </Field>
         <Field label="Phone">
           <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />

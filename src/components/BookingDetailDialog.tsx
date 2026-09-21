@@ -5,7 +5,9 @@ import { usePos, folioBalance } from '../store/pos'
 import { formatMoney, round2 } from '../lib/money'
 import { useManagerApproval } from './useManagerApproval'
 import { fmtDate, fmtDateTime, fmtTime } from '../lib/date'
+import { buildBookingReceipt } from '../lib/bookingReceipt'
 import { Modal } from './Modal'
+import { ReceiptView } from './ReceiptView'
 import { FolioDialog } from './FolioDialog'
 
 const STATUS_STYLE: Record<BookingStatus, string> = {
@@ -36,6 +38,7 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
   const approval = useManagerApproval()
   const [error, setError] = useState<string | null>(null)
   const [showFolio, setShowFolio] = useState(false)
+  const [showReceipt, setShowReceipt] = useState(false)
 
   if (!booking) return null
   const client = clients.find((c) => c.id === booking.clientId)
@@ -119,6 +122,13 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
             <div className="rounded-btn bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>
           )}
 
+          <button
+            className="tap self-start rounded-btn bg-panel-2 px-4 py-2 text-sm font-semibold hover:bg-panel-3"
+            onClick={() => setShowReceipt(true)}
+          >
+            🖨 Print confirmation
+          </button>
+
           {/* Actions by status */}
           <div className="flex flex-wrap gap-2">
             {(booking.status === 'RESERVED' || booking.status === 'BOOKED') && (
@@ -167,6 +177,21 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
               </>
             )}
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={showReceipt} onClose={() => setShowReceipt(false)} title="Booking confirmation" width="min(460px, 94vw)">
+        <ReceiptView data={buildBookingReceipt(booking, client, room, config)} />
+        <div className="flex justify-end gap-3 border-t border-line p-4">
+          <button className="tap rounded-btn px-5 py-3 text-muted hover:bg-panel-2" onClick={() => setShowReceipt(false)}>
+            Close
+          </button>
+          <button
+            className="tap rounded-btn bg-primary px-6 py-3 font-semibold text-white hover:bg-primary-2"
+            onClick={() => window.print()}
+          >
+            Print
+          </button>
         </div>
       </Modal>
 
