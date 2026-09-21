@@ -6,6 +6,7 @@ import {
   ClipboardList,
   BarChart3,
   Users,
+  Contact,
   LogOut,
   X,
 } from 'lucide-react'
@@ -27,6 +28,7 @@ const NAV: NavItem[] = [
   { to: '/', label: 'Calendar', icon: CalendarDays, end: true },
   { to: '/floor', label: 'Floor', icon: LayoutGrid, end: false },
   { to: '/bookings', label: 'Bookings', icon: ClipboardList, end: false },
+  { to: '/clients', label: 'Clients', icon: Contact, end: false },
   { to: '/reports', label: 'Reports', icon: BarChart3, end: false, perm: 'reports' },
   { to: '/staff', label: 'Staff', icon: Users, end: false, perm: 'add_staff' },
 ]

@@ -5,6 +5,7 @@ import { Layout } from './components/Layout'
 import { CalendarScreen } from './screens/CalendarScreen'
 import { RoomsBoard } from './screens/RoomsBoard'
 import { ReservationsScreen } from './screens/ReservationsScreen'
+import { ClientsScreen } from './screens/ClientsScreen'
 import { ReportsScreen } from './screens/ReportsScreen'
 import { StaffScreen } from './screens/StaffScreen'
 import { OrderScreen } from './screens/OrderScreen'
@@ -41,6 +42,7 @@ export default function App() {
               <Route path="/" element={<CalendarScreen />} />
               <Route path="/floor" element={<RoomsBoard />} />
               <Route path="/bookings" element={<ReservationsScreen />} />
+              <Route path="/clients" element={<ClientsScreen />} />
               <Route
                 path="/reports"
                 element={

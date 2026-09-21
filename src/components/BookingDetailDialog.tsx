@@ -48,7 +48,7 @@ export function BookingDetailDialog({ open, booking, onClose }: Props) {
 
   const schedule =
     booking.mode === 'NIGHTLY'
-      ? `${fmtDate(booking.start)} → ${fmtDate(booking.end)} · ${booking.nights} night(s)`
+      ? `${fmtDate(booking.start)} ${fmtTime(booking.start)} → ${fmtDate(booking.end)} ${fmtTime(booking.end)} · ${booking.nights} night(s)`
       : `${fmtDate(booking.start)} · ${fmtTime(booking.start)}–${fmtTime(booking.end)}`
 
   const doCheckIn = async () => {

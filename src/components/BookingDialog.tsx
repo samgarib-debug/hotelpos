@@ -3,7 +3,8 @@ import type { Booking, BookingKind, PaymentKind, StayMode } from '../types'
 import { usePos } from '../store/pos'
 import { DEFAULT_RATE } from '../data/seed'
 import { formatMoney, round2 } from '../lib/money'
-import { nightsBetween, ymd } from '../lib/date'
+import { fmtDate, nightsBetween, ymd } from '../lib/date'
+import { clientList, searchClients } from '../lib/clients'
 import { Modal } from './Modal'
 
 interface BookingDialogProps {
@@ -33,6 +34,8 @@ export function BookingDialog({
 }: BookingDialogProps) {
   const rooms = usePos((s) => s.rooms)
   const config = usePos((s) => s.config)
+  const clients = usePos((s) => s.clients)
+  const bookings = usePos((s) => s.bookings)
   const createBooking = usePos((s) => s.createBooking)
   const isRoomAvailable = usePos((s) => s.isRoomAvailable)
 
@@ -49,6 +52,8 @@ export function BookingDialog({
   const [date, setDate] = useState('')
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('17:00')
+  const [checkInTime, setCheckInTime] = useState('14:00')
+  const [checkOutTime, setCheckOutTime] = useState('11:00')
   const [rateStr, setRateStr] = useState('')
   const [amountStr, setAmountStr] = useState('')
   const [paymentKind, setPaymentKind] = useState<PaymentKind>('CARD')
@@ -57,6 +62,8 @@ export function BookingDialog({
   const [email, setEmail] = useState('')
   const [idNumber, setIdNumber] = useState('')
   const [notes, setNotes] = useState('')
+  const [clientId, setClientId] = useState<string | undefined>(undefined)
+  const [showSuggest, setShowSuggest] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // (Re)initialise when opened
@@ -71,12 +78,16 @@ export function BookingDialog({
     setDate(base)
     setStartTime(initialStartTime ?? '09:00')
     setEndTime(initialEndTime ?? '17:00')
+    setCheckInTime('14:00')
+    setCheckOutTime('11:00')
     setAmountStr('80')
     setName('')
     setPhone('')
     setEmail('')
     setIdNumber('')
     setNotes('')
+    setClientId(undefined)
+    setShowSuggest(false)
     setPaymentKind('CARD')
     setError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,8 +105,44 @@ export function BookingDialog({
   const total =
     mode === 'NIGHTLY' ? round2(rate * nights) : round2(Number(amountStr) || 0)
 
-  const start = mode === 'NIGHTLY' ? `${arrival}T14:00:00` : `${date}T${startTime}:00`
-  const end = mode === 'NIGHTLY' ? `${departure}T11:00:00` : `${date}T${endTime}:00`
+  const start = mode === 'NIGHTLY' ? `${arrival}T${checkInTime}:00` : `${date}T${startTime}:00`
+  const end = mode === 'NIGHTLY' ? `${departure}T${checkOutTime}:00` : `${date}T${endTime}:00`
+
+  // Returning-guest search over the client database.
+  const clientEntries = useMemo(() => clientList(clients, bookings), [clients, bookings])
+  const suggestions = useMemo(
+    () => (clientId ? [] : searchClients(clientEntries, name)),
+    [clientEntries, name, clientId],
+  )
+
+  const pickClient = (c: {
+    id: string
+    name: string
+    phone?: string
+    email?: string
+    idNumber?: string
+    notes?: string
+  }) => {
+    setClientId(c.id)
+    setName(c.name)
+    setPhone(c.phone ?? '')
+    setEmail(c.email ?? '')
+    setIdNumber(c.idNumber ?? '')
+    setNotes(c.notes ?? '')
+    setShowSuggest(false)
+  }
+
+  const clearClient = () => {
+    // "use a new guest instead" — unlink AND clear the auto-filled details so a
+    // genuinely different person (who happened to match a name) starts fresh.
+    setClientId(undefined)
+    setName('')
+    setPhone('')
+    setEmail('')
+    setIdNumber('')
+    setNotes('')
+    setShowSuggest(false)
+  }
 
   const available = roomId ? isRoomAvailable(roomId, start, end) : false
   const validSchedule = mode === 'NIGHTLY' ? nights >= 1 : end > start
@@ -112,6 +159,7 @@ export function BookingDialog({
       rate: mode === 'NIGHTLY' ? rate : total,
       total,
       client: { name, phone, email, idNumber, notes },
+      clientId,
       paymentKind: kind === 'BOOKING' ? paymentKind : undefined,
     })
     if ('error' in res) {
@@ -171,11 +219,17 @@ export function BookingDialog({
         {/* Schedule */}
         {mode === 'NIGHTLY' ? (
           <>
-            <Field label="Arrival">
-              <input type="date" value={arrival} onChange={(e) => setArrival(e.target.value)} className={inputCls} />
+            <Field label="Arrival (check-in)">
+              <div className="flex gap-2">
+                <input type="date" value={arrival} onChange={(e) => setArrival(e.target.value)} className={inputCls} />
+                <input type="time" value={checkInTime} onChange={(e) => setCheckInTime(e.target.value)} className={`${inputCls} w-28 shrink-0`} title="Check-in time" />
+              </div>
             </Field>
-            <Field label="Departure">
-              <input type="date" value={departure} min={nextDay(arrival)} onChange={(e) => setDeparture(e.target.value)} className={inputCls} />
+            <Field label="Departure (check-out)">
+              <div className="flex gap-2">
+                <input type="date" value={departure} min={nextDay(arrival)} onChange={(e) => setDeparture(e.target.value)} className={inputCls} />
+                <input type="time" value={checkOutTime} onChange={(e) => setCheckOutTime(e.target.value)} className={`${inputCls} w-28 shrink-0`} title="Check-out time" />
+              </div>
             </Field>
             <Field label={`Rate / night${nights ? ` · ${nights} night(s)` : ''}`}>
               <input type="number" value={rateStr} onChange={(e) => setRateStr(e.target.value)} className={inputCls} />
@@ -217,11 +271,55 @@ export function BookingDialog({
         </div>
 
         {/* Client details */}
-        <div className="sm:col-span-2 mt-1 border-t border-line pt-3 text-sm font-semibold text-muted">
-          Guest / client details
+        <div className="sm:col-span-2 mt-1 flex items-center justify-between border-t border-line pt-3">
+          <span className="text-sm font-semibold text-muted">Guest / client details</span>
+          {clientId && (
+            <span className="flex items-center gap-2 rounded-full bg-success/20 px-3 py-1 text-xs font-semibold text-success">
+              Returning guest — details filled from the database
+              <button onClick={clearClient} title="Use a new guest instead" className="tap font-bold hover:text-fg">
+                ✕
+              </button>
+            </span>
+          )}
         </div>
-        <Field label="Full name *">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. J. Smith" className={inputCls} />
+        <Field label="Full name * — type to search returning guests">
+          <div className="relative">
+            <input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                setClientId(undefined)
+                setShowSuggest(true)
+              }}
+              onFocus={() => setShowSuggest(true)}
+              onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
+              placeholder="e.g. J. Smith"
+              autoComplete="off"
+              className={inputCls}
+            />
+            {showSuggest && suggestions.length > 0 && (
+              <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-btn border border-line bg-panel shadow-lg">
+                {suggestions.map((e) => (
+                  <button
+                    key={e.client.id}
+                    // onMouseDown fires before the input's onBlur, so the pick lands
+                    onMouseDown={(ev) => {
+                      ev.preventDefault()
+                      pickClient(e.client)
+                    }}
+                    className="tap flex w-full flex-col items-start gap-0.5 border-b border-line/60 px-3 py-2 text-left last:border-0 hover:bg-panel-2"
+                  >
+                    <span className="font-semibold">{e.client.name}</span>
+                    <span className="text-xs text-muted">
+                      {[e.client.phone, e.client.email].filter(Boolean).join(' · ') || 'no contact on file'}
+                      {e.bookingCount > 0 && ` · ${e.bookingCount} past stay${e.bookingCount > 1 ? 's' : ''}`}
+                      {e.lastStay && ` · last ${fmtDate(e.lastStay)}`}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </Field>
         <Field label="Phone">
           <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />

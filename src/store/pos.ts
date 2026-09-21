@@ -60,6 +60,10 @@ export interface NewBookingInput {
     idNumber?: string
     notes?: string
   }
+  /** When set, reuse this existing client instead of creating a new record
+   *  (returning guest picked from the database); the record is refreshed with
+   *  any edited details. */
+  clientId?: string
   paymentKind?: PaymentKind // required when kind === 'BOOKING' (prepaid)
   notes?: string
 }
@@ -130,6 +134,8 @@ interface PosState {
     excludeId?: string,
   ) => boolean
   createBooking: (input: NewBookingInput) => Booking | { error: string }
+  /** Update a stored client's details (returning-guest edits). */
+  updateClient: (id: string, patch: Partial<Omit<Client, 'id' | 'createdAt'>>) => void
   cancelBooking: (id: string) => void
   checkInBooking: (id: string) => Promise<{ ok: true } | { error: string }>
   checkOutBooking: (id: string) => Promise<{ ok: true } | { error: string }>
@@ -640,7 +646,12 @@ export const usePos = create<PosState>()(
         }
 
         const seq = s.seq + 1
-        const clientId = nanoid()
+        // Returning guest: reuse the existing client record (refreshed with any
+        // edited details) instead of creating a duplicate. New guest: enroll.
+        const existing = input.clientId
+          ? s.clients.find((c) => c.id === input.clientId)
+          : undefined
+        const clientId = existing ? existing.id : nanoid()
         const client: Client = {
           id: clientId,
           name: input.client.name.trim(),
@@ -648,8 +659,11 @@ export const usePos = create<PosState>()(
           email: input.client.email?.trim() || undefined,
           idNumber: input.client.idNumber?.trim() || undefined,
           notes: input.client.notes?.trim() || undefined,
-          createdAt: nowISO(),
+          createdAt: existing ? existing.createdAt : nowISO(),
         }
+        const clients = existing
+          ? s.clients.map((c) => (c.id === clientId ? client : c))
+          : [...s.clients, client]
 
         const kind = input.kind
         const status: BookingStatus = kind === 'BOOKING' ? 'BOOKED' : 'RESERVED'
@@ -692,7 +706,7 @@ export const usePos = create<PosState>()(
 
         set({
           seq,
-          clients: [...s.clients, client],
+          clients,
           bookings: [...s.bookings, booking],
           payments,
         })
@@ -706,6 +720,22 @@ export const usePos = create<PosState>()(
         }
         return booking
       },
+
+      updateClient: (id, patch) =>
+        set((s) => ({
+          clients: s.clients.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  ...('name' in patch ? { name: patch.name?.trim() || c.name } : {}),
+                  ...('phone' in patch ? { phone: patch.phone?.trim() || undefined } : {}),
+                  ...('email' in patch ? { email: patch.email?.trim() || undefined } : {}),
+                  ...('idNumber' in patch ? { idNumber: patch.idNumber?.trim() || undefined } : {}),
+                  ...('notes' in patch ? { notes: patch.notes?.trim() || undefined } : {}),
+                }
+              : c,
+          ),
+        })),
 
       cancelBooking: (id) =>
         set((s) => ({
